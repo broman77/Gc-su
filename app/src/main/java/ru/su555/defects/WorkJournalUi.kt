@@ -1421,9 +1421,6 @@ private fun WorkReports(
     val criticalOpen = remember(defects) {
         defects.count { !it.isClosed && it.priority == DefectPriority.CRITICAL }
     }
-    val criticalOpen = remember(defects) {
-        defects.count { !it.isClosed && it.priority == DefectPriority.CRITICAL }
-    }
     val contractors = remember(defects) { defects.byResponsible().filter { it.open > 0 }.take(10) }
     val resources = remember(defects, norms) { defects.contractorResourceEstimates(norms) }
     val sections = remember(defects) { defects.bySection() }
