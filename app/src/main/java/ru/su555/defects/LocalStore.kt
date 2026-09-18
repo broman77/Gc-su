@@ -44,6 +44,11 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
                 due_date TEXT,
                 source_sheet TEXT NOT NULL,
                 source_row INTEGER NOT NULL,
+                priority TEXT NOT NULL DEFAULT 'NORMAL',
+                assigned_employee TEXT NOT NULL DEFAULT '',
+                reported_at INTEGER,
+                verified_at INTEGER,
+                completed_at INTEGER,
                 archived INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
@@ -78,7 +83,13 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // beta 0.4.0 is the first local database schema.
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE defects ADD COLUMN priority TEXT NOT NULL DEFAULT 'NORMAL'")
+            db.execSQL("ALTER TABLE defects ADD COLUMN assigned_employee TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE defects ADD COLUMN reported_at INTEGER")
+            db.execSQL("ALTER TABLE defects ADD COLUMN verified_at INTEGER")
+            db.execSQL("ALTER TABLE defects ADD COLUMN completed_at INTEGER")
+        }
     }
 
     fun activeDefects(): List<Defect> = queryDefects(archived = false)
@@ -125,7 +136,23 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
     fun updateDefect(defect: Defect) {
         require(defect.id > 0) { "Нельзя изменить замечание без id" }
         val before = defectById(defect.id)
-        val updated = defect.copy(updatedAt = System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        val updated = defect.copy(
+            reportedAt = when {
+                defect.status == DefectStatus.REPORTED_NOT_DONE && defect.reportedAt == null -> now
+                else -> defect.reportedAt
+            },
+            verifiedAt = when {
+                defect.status == DefectStatus.REPORTED_NOT_DONE && defect.verifiedAt == null -> now
+                defect.status == DefectStatus.DONE && defect.verifiedAt == null -> now
+                else -> defect.verifiedAt
+            },
+            completedAt = when {
+                defect.status == DefectStatus.DONE && defect.completedAt == null -> now
+                else -> defect.completedAt
+            },
+            updatedAt = now
+        )
 
         writableDatabase.update(
             "defects",
@@ -142,6 +169,10 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
                 changes += "Подрядчик: «${before.responsible}» → «${updated.responsible}»"
             }
             if (before.status != updated.status) changes += "Статус: ${before.status.title} → ${updated.status.title}"
+            if (before.priority != updated.priority) changes += "Приоритет: ${before.priority.title} → ${updated.priority.title}"
+            if (before.assignedEmployee != updated.assignedEmployee) {
+                changes += "Ответственный: «${before.assignedEmployee}» → «${updated.assignedEmployee}»"
+            }
             if (before.dueDate != updated.dueDate) {
                 changes += "Срок: ${before.dueDate ?: "не указан"} → ${updated.dueDate ?: "не указан"}"
             }
@@ -159,9 +190,22 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
         val before = defectById(defectId) ?: return
         if (before.status == status) return
 
+        val now = System.currentTimeMillis()
         val values = ContentValues().apply {
             put("status", status.name)
-            put("updated_at", System.currentTimeMillis())
+            put("updated_at", now)
+            when (status) {
+                DefectStatus.REPORTED_NOT_DONE -> {
+                    if (before.reportedAt == null) put("reported_at", now)
+                    if (before.verifiedAt == null) put("verified_at", now)
+                }
+                DefectStatus.DONE -> {
+                    if (before.verifiedAt == null) put("verified_at", now)
+                    if (before.completedAt == null) put("completed_at", now)
+                }
+                DefectStatus.ATTENTION,
+                DefectStatus.OPEN -> Unit
+            }
         }
         writableDatabase.update("defects", values, "id=?", arrayOf(defectId.toString()))
         insertHistory(
@@ -169,6 +213,22 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
             defectId,
             "Изменён статус",
             "${before.status.title} → ${status.title}"
+        )
+    }
+
+    fun restoreSnapshot(defect: Defect) {
+        require(defect.id > 0)
+        writableDatabase.update(
+            "defects",
+            defectValues(defect.copy(updatedAt = System.currentTimeMillis()), archived = false, includeCreatedAt = false),
+            "id=?",
+            arrayOf(defect.id.toString())
+        )
+        insertHistory(
+            writableDatabase,
+            defect.id,
+            "Отмена действия",
+            "Восстановлено предыдущее состояние"
         )
     }
 
@@ -352,6 +412,11 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
         if (defect.dueDate == null) putNull("due_date") else put("due_date", defect.dueDate.toString())
         put("source_sheet", defect.sourceSheet)
         put("source_row", defect.sourceRow)
+        put("priority", defect.priority.name)
+        put("assigned_employee", defect.assignedEmployee)
+        if (defect.reportedAt == null) putNull("reported_at") else put("reported_at", defect.reportedAt)
+        if (defect.verifiedAt == null) putNull("verified_at") else put("verified_at", defect.verifiedAt)
+        if (defect.completedAt == null) putNull("completed_at") else put("completed_at", defect.completedAt)
         put("archived", if (archived) 1 else 0)
         if (includeCreatedAt) put("created_at", defect.createdAt)
         put("updated_at", defect.updatedAt)
@@ -361,6 +426,10 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
         fun string(name: String): String = cursor.getString(cursor.getColumnIndexOrThrow(name))
         fun int(name: String): Int = cursor.getInt(cursor.getColumnIndexOrThrow(name))
         fun long(name: String): Long = cursor.getLong(cursor.getColumnIndexOrThrow(name))
+        fun nullableLong(name: String): Long? {
+            val index = cursor.getColumnIndexOrThrow(name)
+            return if (cursor.isNull(index)) null else cursor.getLong(index)
+        }
 
         val dueRaw = cursor.getString(cursor.getColumnIndexOrThrow("due_date"))
         return Defect(
@@ -376,6 +445,11 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
             dueDate = dueRaw?.takeIf { it.isNotBlank() }?.let { LocalDate.parse(it) },
             sourceSheet = string("source_sheet"),
             sourceRow = int("source_row"),
+            priority = runCatching { DefectPriority.valueOf(string("priority")) }.getOrDefault(DefectPriority.NORMAL),
+            assignedEmployee = string("assigned_employee"),
+            reportedAt = nullableLong("reported_at"),
+            verifiedAt = nullableLong("verified_at"),
+            completedAt = nullableLong("completed_at"),
             createdAt = long("created_at"),
             updatedAt = long("updated_at")
         )
@@ -401,12 +475,13 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DB_NAME = "defects.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
 
         private val DEFECT_COLUMNS = arrayOf(
             "id", "building", "section", "apartment", "address", "element",
             "description", "responsible", "status", "due_date", "source_sheet",
-            "source_row", "created_at", "updated_at"
+            "source_row", "priority", "assigned_employee", "reported_at", "verified_at",
+            "completed_at", "created_at", "updated_at"
         )
     }
 }

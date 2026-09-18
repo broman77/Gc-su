@@ -10,6 +10,23 @@ enum class DefectStatus(val title: String) {
     REPORTED_NOT_DONE("Отчитано, но не выполнено")
 }
 
+enum class DefectPriority(val title: String) {
+    NORMAL("Обычный"),
+    IMPORTANT("Важный"),
+    CRITICAL("Критичный")
+}
+
+data class LaborNorms(
+    val defaultHours: Double = 1.0,
+    val electricalPlumbingHours: Double = 1.5,
+    val finishingHours: Double = 1.75,
+    val tileHours: Double = 2.0,
+    val ceilingHours: Double = 2.0,
+    val glassHours: Double = 2.5,
+    val doorsFloorHours: Double = 1.25,
+    val targetWorkingDays: Int = 10
+)
+
 data class ProjectSection(
     val building: Int,
     val section: Int,
@@ -49,6 +66,11 @@ data class Defect(
     val dueDate: LocalDate?,
     val sourceSheet: String,
     val sourceRow: Int,
+    val priority: DefectPriority = DefectPriority.NORMAL,
+    val assignedEmployee: String = "",
+    val reportedAt: Long? = null,
+    val verifiedAt: Long? = null,
+    val completedAt: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
@@ -63,6 +85,17 @@ data class Defect(
 
     fun overdueDays(today: LocalDate = LocalDate.now()): Long =
         if (isOverdue(today)) ChronoUnit.DAYS.between(dueDate, today) else 0L
+
+    fun needsAttention(today: LocalDate = LocalDate.now()): Boolean =
+        !isClosed && (
+            priority == DefectPriority.CRITICAL ||
+                status == DefectStatus.ATTENTION ||
+                status == DefectStatus.REPORTED_NOT_DONE ||
+                isOverdue(today) ||
+                dueDate == today ||
+                dueDate == today.plusDays(1) ||
+                responsibleNames(this).contains("Не указан")
+            )
 }
 
 data class ApartmentSummary(
@@ -357,30 +390,30 @@ fun List<Defect>.byResponsible(today: LocalDate = LocalDate.now()): List<Categor
     )
 }
 
-fun estimatedLaborHours(defect: Defect): Double {
+fun estimatedLaborHours(defect: Defect, norms: LaborNorms = LaborNorms()): Double {
     val text = (defect.element + " " + defect.description)
         .lowercase()
         .replace('ё', 'е')
 
     return when {
-        containsAny(text, "стеклопак", "стекл") -> 2.5
-        containsAny(text, "потол") -> 2.0
-        containsAny(text, "плитк", "керамогран", "затир") -> 2.0
-        containsAny(text, "штукатур", "шпатлев", "шпаклев", "окрас", "покрас", "обои") -> 1.75
+        containsAny(text, "стеклопак", "стекл") -> norms.glassHours
+        containsAny(text, "потол") -> norms.ceilingHours
+        containsAny(text, "плитк", "керамогран", "затир") -> norms.tileHours
+        containsAny(text, "штукатур", "шпатлев", "шпаклев", "окрас", "покрас", "обои") -> norms.finishingHours
 
         containsAny(
             text,
             "электр", "розет", "выключател", "автомат", "щит", "кабел",
             "провод", "сантех", "унитаз", "раковин", "смесител", "сифон",
             "труб", "радиатор", "канализ"
-        ) -> 1.5
+        ) -> norms.electricalPlumbingHours
 
-        containsAny(text, "двер", "наличник", "порог", "ламин", "плинтус") -> 1.25
-        else -> 1.0
+        containsAny(text, "двер", "наличник", "порог", "ламин", "плинтус") -> norms.doorsFloorHours
+        else -> norms.defaultHours
     }
 }
 
-fun List<Defect>.contractorResourceEstimates(): List<ContractorResourceEstimate> {
+fun List<Defect>.contractorResourceEstimates(norms: LaborNorms = LaborNorms()): List<ContractorResourceEstimate> {
     data class Bucket(
         val defects: MutableList<Defect> = mutableListOf()
     )
@@ -396,8 +429,9 @@ fun List<Defect>.contractorResourceEstimates(): List<ContractorResourceEstimate>
 
     return buckets.map { (name, bucket) ->
         val rows = bucket.defects
-        val hours = rows.sumOf(::estimatedLaborHours)
-        val people = if (hours <= 0.0) 0 else kotlin.math.ceil(hours / 80.0).toInt().coerceAtLeast(1)
+        val hours = rows.sumOf { estimatedLaborHours(it, norms) }
+        val targetDays = norms.targetWorkingDays.coerceAtLeast(1)
+        val people = if (hours <= 0.0) 0 else kotlin.math.ceil(hours / (targetDays * 8.0)).toInt().coerceAtLeast(1)
         val days = if (people == 0) 0.0 else hours / (people * 8.0)
 
         ContractorResourceEstimate(
@@ -429,3 +463,17 @@ fun List<Defect>.defectsForApartment(
             .thenByDescending { it.status == DefectStatus.ATTENTION }
             .thenBy { it.element }
     )
+
+
+fun List<Defect>.attentionItems(today: LocalDate = LocalDate.now()): List<Defect> =
+    filter { it.needsAttention(today) }
+        .sortedWith(
+            compareByDescending<Defect> { it.priority == DefectPriority.CRITICAL }
+                .thenByDescending { it.isOverdue(today) }
+                .thenByDescending { it.status == DefectStatus.REPORTED_NOT_DONE }
+                .thenByDescending { it.status == DefectStatus.ATTENTION }
+                .thenBy { it.dueDate ?: LocalDate.MAX }
+                .thenBy { it.building }
+                .thenBy { it.section }
+                .thenBy { it.apartment }
+        )
