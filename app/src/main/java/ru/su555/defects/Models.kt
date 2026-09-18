@@ -222,9 +222,9 @@ fun canonicalResponsibleName(value: String): String {
         .replace(".", "")
         .trim()
 
-    return when (key) {
-        "мкд", "стм", "сму" -> "СМУ"
-        "электрика", "электрики", "электрик", "сантехника", "сантехники", "сантехник", "уир" -> "УИР"
+    return when {
+        key == "сму" || key.startsWith("мкд") || key.startsWith("стм") -> "СМУ"
+        key == "уир" || key.contains("электрик") || key.contains("сантех") -> "УИР"
         else -> cleaned
     }
 }
