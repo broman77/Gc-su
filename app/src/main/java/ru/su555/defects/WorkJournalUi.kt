@@ -855,6 +855,7 @@ private fun WorkApartments(
                             Text("Корпус ${item.building} · секция ${item.section}", color = WMuted)
                         }
                         when {
+                            item.total == 0 -> WorkPill("Нет замечаний", WGreen)
                             item.hasOverdue -> WorkPill("Просрочка", WDanger)
                             item.reportedNotDone > 0 -> WorkPill("Есть синие", WBlue)
                             item.attention > 0 -> WorkPill("Внимание", WOrange)
