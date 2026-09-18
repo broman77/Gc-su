@@ -28,13 +28,13 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
-      - name: Inspect official SU-555 logo assets
+      - name: Fetch official SU-555 logo assets
         run: |
-          curl -L --fail --silent --show-error https://gcsu-555.ru/ru/ -o /tmp/su555.html
-          echo "=== HEADER LOGO HTML ==="
-          grep -A35 -B5 'class="header__logo"' /tmp/su555.html | head -120 || true
-          echo "=== FOOTER LOGO HTML ==="
-          grep -A35 -B5 'class="footer__logo"' /tmp/su555.html | head -100 || true
+          mkdir -p official-brand
+          curl -L --fail --silent --show-error https://gcsu-555.ru/upload/iblock/046/lklgnno719qoagg793n5p2x4t2bgkxb4.svg -o official-brand/su555-logo.svg
+          curl -L --fail --silent --show-error https://gcsu-555.ru/upload/iblock/f05/v1rt1kphsa7m7po3ema0dzvbzc2rvkrv.svg -o official-brand/su555-logo-mobile.svg
+          curl -L --fail --silent --show-error https://gcsu-555.ru/upload/iblock/41c/sz3ct0yzi9j9q85vdstiwqwmx68lwh3f.svg -o official-brand/su555-logo-footer.svg
+          echo "DESKTOP_SVG_BASE64=$(base64 -w0 official-brand/su555-logo.svg)"
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
