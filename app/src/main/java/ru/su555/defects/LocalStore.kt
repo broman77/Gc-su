@@ -238,6 +238,30 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
         return result
     }
 
+    fun historySince(timestamp: Long): List<HistoryItem> {
+        val result = mutableListOf<HistoryItem>()
+        readableDatabase.query(
+            "history",
+            arrayOf("id", "defect_id", "timestamp", "action", "details"),
+            "timestamp>=?",
+            arrayOf(timestamp.toString()),
+            null,
+            null,
+            "timestamp DESC"
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                result += HistoryItem(
+                    id = cursor.getLong(0),
+                    defectId = cursor.getLong(1),
+                    timestamp = cursor.getLong(2),
+                    action = cursor.getString(3),
+                    details = cursor.getString(4)
+                )
+            }
+        }
+        return result
+    }
+
     fun addPhoto(defectId: Long, path: String, label: String): Long {
         val now = System.currentTimeMillis()
         val values = ContentValues().apply {
