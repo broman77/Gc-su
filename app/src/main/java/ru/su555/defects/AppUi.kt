@@ -1122,16 +1122,21 @@ private fun BarList(items: List<Pair<String, Int>>, color: Color) {
 
 @Composable
 private fun OfficialLogo(compact: Boolean) {
-    Image(
-        painter = painterResource(id = R.drawable.su555_logo),
-        contentDescription = "ООО ГК СУ-555",
-        contentScale = ContentScale.Fit,
-        modifier = if (compact) {
-            Modifier.width(86.dp).height(34.dp)
-        } else {
-            Modifier.width(230.dp).height(92.dp)
-        }
-    )
+    Surface(
+        color = BrandBlue,
+        shape = RoundedCornerShape(if (compact) 7.dp else 18.dp)
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.su555_logo),
+            contentDescription = "ООО ГК СУ-555",
+            contentScale = ContentScale.Fit,
+            modifier = if (compact) {
+                Modifier.width(92.dp).height(36.dp).padding(horizontal = 5.dp, vertical = 3.dp)
+            } else {
+                Modifier.width(244.dp).height(102.dp).padding(horizontal = 16.dp, vertical = 12.dp)
+            }
+        )
+    }
 }
 
 private fun statusColor(status: DefectStatus): Color = when (status) {
