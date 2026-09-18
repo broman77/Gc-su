@@ -28,6 +28,14 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
+      - name: Inspect official SU-555 logo assets
+        run: |
+          curl -L --fail --silent --show-error https://gcsu-555.ru/ru/ -o /tmp/su555.html
+          echo "=== logo mentions ==="
+          grep -ioE '.{0,120}logo.{0,220}' /tmp/su555.html | head -40 || true
+          echo "=== likely image assets ==="
+          grep -oE '(/[^"''' <>]+\.(svg|png|webp|jpg|jpeg))' /tmp/su555.html | sort -u | grep -Ei 'logo|header|footer|brand|555|gksu' | head -100 || true
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
