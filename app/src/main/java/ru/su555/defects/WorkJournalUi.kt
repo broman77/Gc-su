@@ -582,7 +582,8 @@ fun WorkJournalApp() {
                         onArchive = { archiveTarget = it },
                         onPhoto = ::capturePhoto,
                         onBulk = { responsible, status, dueDate ->
-                            apartmentDefects.filter { !it.isClosed }.forEach { defect ->
+                            val before = apartmentDefects.filter { !it.isClosed }
+                            before.forEach { defect ->
                                 store.updateDefect(
                                     defect.copy(
                                         responsible = responsible.ifBlank { defect.responsible },
@@ -592,6 +593,16 @@ fun WorkJournalApp() {
                                 )
                             }
                             refresh()
+                            scope.launch {
+                                val result = snackbar.showSnackbar(
+                                    message = "Массовое изменение применено",
+                                    actionLabel = "Отменить"
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    before.forEach(store::restoreSnapshot)
+                                    refresh()
+                                }
+                            }
                         }
                     )
                 }
