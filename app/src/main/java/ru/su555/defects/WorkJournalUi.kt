@@ -922,6 +922,86 @@ private fun WorkOverview(
 }
 
 @Composable
+private fun WorkAttention(
+    defects: List<Defect>,
+    onOpenApartment: (ApartmentSummary) -> Unit,
+    onEdit: (Defect) -> Unit
+) {
+    val items = remember(defects) { defects.attentionItems() }
+    val apartments = remember(defects) {
+        defects.byApartment().associateBy { Triple(it.building, it.section, it.apartment) }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Text("Требует внимания", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "Критичные, просроченные, синие, оранжевые, без подрядчика и сроки сегодня/завтра",
+                color = WMuted
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("Всего: " + items.size, color = WBrandBlue, fontWeight = FontWeight.SemiBold)
+        }
+
+        items(items, key = { it.id }) { defect ->
+            val summary = apartments[Triple(defect.building, defect.section, defect.apartment)]
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth().clickable {
+                    if (summary != null) onOpenApartment(summary)
+                },
+                colors = CardDefaults.elevatedCardColors(containerColor = Color.White)
+            ) {
+                Column(Modifier.padding(15.dp)) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Корпус " + defect.building + " · секция " + defect.section +
+                                    " · кв. " + defect.apartment,
+                                color = WBrandBlue,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(defect.element.ifBlank { "Замечание" }, color = WMuted)
+                        }
+                        if (defect.priority != DefectPriority.NORMAL) {
+                            WorkPill(defect.priority.title, if (defect.priority == DefectPriority.CRITICAL) WDanger else WOrange)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(defect.description)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (defect.isOverdue()) WorkPill("Просрочка +" + defect.overdueDays() + " дн.", WDanger)
+                        if (defect.status == DefectStatus.REPORTED_NOT_DONE) WorkPill("Синий", WBlue)
+                        if (defect.status == DefectStatus.ATTENTION) WorkPill("Оранжевый", WOrange)
+                        if (responsibleNames(defect).contains("Не указан")) WorkPill("Нет подрядчика", WBrandDark)
+                        defect.dueDate?.let { due ->
+                            if (due == LocalDate.now()) WorkPill("Срок сегодня", WDanger)
+                            if (due == LocalDate.now().plusDays(1)) WorkPill("Срок завтра", WOrange)
+                        }
+                    }
+                    if (defect.assignedEmployee.isNotBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("Ответственный: " + defect.assignedEmployee, color = WMuted)
+                    }
+                    TextButton(onClick = { onEdit(defect) }) {
+                        Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Изменить")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun WorkApartments(
     defects: List<Defect>,
     onOpen: (ApartmentSummary) -> Unit,
@@ -1281,17 +1361,19 @@ private fun DefectWorkCard(
 private fun WorkReports(
     defects: List<Defect>,
     store: LocalStore,
-    reminderEnabled: Boolean,
-    onReminder: (Boolean) -> Unit,
+    norms: LaborNorms,
     onExport: () -> Unit,
-    onArchive: () -> Unit,
     onContractor: (String) -> Unit
 ) {
+    val context = LocalContext.current
     val d = remember(defects) { defects.dashboard() }
     val contractors = remember(defects) { defects.byResponsible().filter { it.open > 0 }.take(10) }
-    val resources = remember(defects) { defects.contractorResourceEstimates() }
+    val resources = remember(defects, norms) { defects.contractorResourceEstimates(norms) }
     val sections = remember(defects) { defects.bySection() }
-    val archiveCount = remember(defects) { store.archivedCount() }
+    val weekAgo = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
+    val history7 = remember(defects) { store.historySince(weekAgo) }
+    val closed7 = history7.count { it.details.contains("→ Выполнено") }
+    val created7 = history7.count { it.action == "Создано замечание" }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1310,6 +1392,26 @@ private fun WorkReports(
                 item { WorkMetric("Готовность", "${d.completionPercent}%", Icons.Outlined.BarChart, WBrandBlue) }
             }
         }
+        item {
+            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(18.dp)) {
+                    Text("Динамика за 7 дней", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        WorkSmallMetric("Закрыто", closed7)
+                        WorkSmallMetric("Новых", created7)
+                        WorkSmallMetric("Баланс", closed7 - created7)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        if (closed7 >= created7) "Хвост уменьшается или стабилен"
+                        else "Новых замечаний больше, чем закрытых",
+                        color = if (closed7 >= created7) WBrandBlue else WDanger
+                    )
+                }
+            }
+        }
+
         item {
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
                 Column(Modifier.padding(18.dp)) {
@@ -1345,7 +1447,7 @@ private fun WorkReports(
             item {
                 Text("Подрядчики", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(
-                    "Оценка ресурсов рассчитана ориентировочно на закрытие объёма примерно за 10 рабочих дней.",
+                    "Оценка ресурсов рассчитана на целевой срок " + norms.targetWorkingDays + " раб. дней.",
                     color = WMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -1369,14 +1471,35 @@ private fun WorkReports(
                                 it.name.equals(contractor.name, ignoreCase = true)
                             }
                             if (estimate != null) {
+                                val currentCrew = ManagementSettings.crewSize(context, contractor.name)
+                                val currentDays = if (currentCrew > 0) {
+                                    estimate.laborHours / (currentCrew * 8.0)
+                                } else {
+                                    0.0
+                                }
+                                val shortage = (estimate.recommendedPeople - currentCrew).coerceAtLeast(0)
                                 Text(
-                                    "≈ ${formatWorkNumber(estimate.laborHours)} чел.-ч · " +
-                                        "${estimate.recommendedPeople} чел. · " +
-                                        "≈ ${formatWorkNumber(estimate.estimatedWorkingDays)} раб. дн.",
+                                    "≈ ${formatWorkNumber(estimate.laborHours)} чел.-ч · нужно " +
+                                        estimate.recommendedPeople + " чел. на " + norms.targetWorkingDays + " дн.",
                                     color = WBrandBlue,
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.SemiBold
                                 )
+                                if (currentCrew > 0) {
+                                    Text(
+                                        "Сейчас " + currentCrew + " чел. → ≈ " +
+                                            formatWorkNumber(currentDays) + " раб. дн." +
+                                            if (shortage > 0) " · не хватает " + shortage else " · усиление не требуется",
+                                        color = if (shortage > 0) WDanger else WGreen,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                } else {
+                                    Text(
+                                        "Текущая численность не задана в настройках",
+                                        color = WMuted,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
                             }
                         }
                         Icon(Icons.Outlined.ChevronRight, contentDescription = null)
@@ -1385,33 +1508,10 @@ private fun WorkReports(
             }
         }
         item {
-            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Outlined.Notifications, contentDescription = null, tint = WBrandBlue)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Ежедневная сводка", fontWeight = FontWeight.Bold)
-                        Text("В 08:00: просроченные квартиры и сроки на сегодня", color = WMuted)
-                    }
-                    Switch(checked = reminderEnabled, onCheckedChange = onReminder)
-                }
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onArchive, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Outlined.Archive, contentDescription = null)
-                    Spacer(Modifier.width(5.dp))
-                    Text("Архив ($archiveCount)")
-                }
-                Button(onClick = onExport, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Outlined.Download, contentDescription = null)
-                    Spacer(Modifier.width(5.dp))
-                    Text("Excel")
-                }
+            Button(onClick = onExport, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.Download, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Сформировать Excel для руководства")
             }
         }
     }
@@ -1427,6 +1527,8 @@ private fun DefectEditorDialog(
     var element by remember(initial.id, isNew) { mutableStateOf(initial.element) }
     var description by remember(initial.id, isNew) { mutableStateOf(initial.description) }
     var responsible by remember(initial.id, isNew) { mutableStateOf(initial.responsible) }
+    var assignedEmployee by remember(initial.id, isNew) { mutableStateOf(initial.assignedEmployee) }
+    var priority by remember(initial.id, isNew) { mutableStateOf(initial.priority) }
     var dueText by remember(initial.id, isNew) {
         mutableStateOf(initial.dueDate?.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) ?: "")
     }
@@ -1461,6 +1563,24 @@ private fun DefectEditorDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
+                    value = assignedEmployee,
+                    onValueChange = { assignedEmployee = it },
+                    label = { Text("Ответственный сотрудник") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    DefectPriority.entries.forEach {
+                        FilterChip(
+                            selected = priority == it,
+                            onClick = { priority = it },
+                            label = { Text(it.title, fontSize = 11.sp) }
+                        )
+                    }
+                }
+                OutlinedTextField(
                     value = dueText,
                     onValueChange = { dueText = it },
                     label = { Text("Срок, ДД.ММ.ГГГГ") },
@@ -1494,6 +1614,8 @@ private fun DefectEditorDialog(
                         element = element.trim(),
                         description = description.trim(),
                         responsible = responsible.trim(),
+                        assignedEmployee = assignedEmployee.trim(),
+                        priority = priority,
                         status = status,
                         dueDate = due
                     )
