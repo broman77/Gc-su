@@ -836,6 +836,9 @@ private fun WorkOverview(
     onOpenApartments: () -> Unit
 ) {
     val d = remember(defects) { defects.dashboard() }
+    val criticalOpen = remember(defects) {
+        defects.count { !it.isClosed && it.priority == DefectPriority.CRITICAL }
+    }
     val sections = remember(defects) { defects.bySection() }
     val sevenDaysAgo = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
     val closed7 = remember(defects) {
@@ -1418,6 +1421,9 @@ private fun WorkReports(
     val criticalOpen = remember(defects) {
         defects.count { !it.isClosed && it.priority == DefectPriority.CRITICAL }
     }
+    val criticalOpen = remember(defects) {
+        defects.count { !it.isClosed && it.priority == DefectPriority.CRITICAL }
+    }
     val contractors = remember(defects) { defects.byResponsible().filter { it.open > 0 }.take(10) }
     val resources = remember(defects, norms) { defects.contractorResourceEstimates(norms) }
     val sections = remember(defects) { defects.bySection() }
@@ -1437,6 +1443,7 @@ private fun WorkReports(
         }
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { WorkMetric("Критичных", criticalOpen.toString(), Icons.Outlined.PriorityHigh, WDanger) }
                 item { WorkMetric("С просрочкой", d.apartmentsWithOverdue.toString(), Icons.Outlined.WarningAmber, WDanger) }
                 item { WorkMetric("В работе", d.apartmentsWithOpen.toString(), Icons.Outlined.Schedule, WOrange) }
                 item { WorkMetric("Закрыты", d.apartmentsFullyDone.toString(), Icons.Outlined.CheckCircle, WGreen) }
