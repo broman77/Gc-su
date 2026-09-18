@@ -633,7 +633,7 @@ fun WorkJournalApp() {
         ContractorDialog(
             contractor = contractor,
             defects = defects.filter {
-                splitResponsible(it.responsible).any { name ->
+                responsibleNames(it).any { name ->
                     name.equals(contractor, ignoreCase = true)
                 }
             },
@@ -1046,9 +1046,11 @@ private fun DefectWorkCard(
                         fontWeight = FontWeight.Bold,
                         color = WBrandBlue
                     )
-                    if (defect.responsible.isNotBlank()) {
-                        Text("Подрядчик: " + defect.responsible, color = WMuted, style = MaterialTheme.typography.bodySmall)
-                    }
+                    Text(
+                        "Подрядчик: " + displayResponsible(defect),
+                        color = WMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
                 WorkPill(shortWorkStatus(defect.status), workStatusColor(defect.status))
             }
@@ -1141,6 +1143,7 @@ private fun WorkReports(
 ) {
     val d = remember(defects) { defects.dashboard() }
     val contractors = remember(defects) { defects.byResponsible().filter { it.open > 0 }.take(10) }
+    val resources = remember(defects) { defects.contractorResourceEstimates() }
     val sections = remember(defects) { defects.bySection() }
     val archiveCount = remember(defects) { store.archivedCount() }
 
@@ -1195,7 +1198,11 @@ private fun WorkReports(
         if (contractors.isNotEmpty()) {
             item {
                 Text("Подрядчики", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("МКД и СТМ входят в СМУ; электрика и сантехника — в УИР", color = WMuted)
+                Text(
+                    "Оценка ресурсов рассчитана ориентировочно на закрытие объёма примерно за 10 рабочих дней.",
+                    color = WMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
             items(contractors) { contractor ->
                 ElevatedCard(
@@ -1212,6 +1219,19 @@ private fun WorkReports(
                                 "Открыто ${contractor.open} · просрочено ${contractor.overdue}",
                                 color = WMuted
                             )
+                            val estimate = resources.firstOrNull {
+                                it.name.equals(contractor.name, ignoreCase = true)
+                            }
+                            if (estimate != null) {
+                                Text(
+                                    "≈ ${formatWorkNumber(estimate.laborHours)} чел.-ч · " +
+                                        "${estimate.recommendedPeople} чел. · " +
+                                        "≈ ${formatWorkNumber(estimate.estimatedWorkingDays)} раб. дн.",
+                                    color = WBrandBlue,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                         Icon(Icons.Outlined.ChevronRight, contentDescription = null)
                     }
@@ -1650,6 +1670,9 @@ private fun parseWorkDate(raw: String): LocalDate? {
     }
     return null
 }
+
+private fun formatWorkNumber(value: Double): String =
+    if (value % 1.0 == 0.0) value.toInt().toString() else String.format("%.1f", value)
 
 private fun formatHistoryTime(timestamp: Long): String =
     Instant.ofEpochMilli(timestamp)
