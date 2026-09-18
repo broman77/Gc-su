@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,8 +27,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apartment
+import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -116,7 +119,6 @@ fun Su555Theme(content: @Composable () -> Unit) {
 private enum class AppTab(val label: String, val icon: ImageVector) {
     OVERVIEW("Сводка", Icons.Outlined.Home),
     APARTMENTS("Квартиры", Icons.Outlined.Apartment),
-    DEFECTS("Замечания", Icons.Outlined.ListAlt),
     REPORTS("Отчёты", Icons.Outlined.BarChart)
 }
 
@@ -140,6 +142,7 @@ fun DefectsApp() {
     var sourceName by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var tabIndex by remember { mutableIntStateOf(0) }
+    var selectedApartment by remember { mutableStateOf<ApartmentSummary?>(null) }
     var pendingExport by remember { mutableStateOf<ByteArray?>(null) }
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -191,6 +194,7 @@ fun DefectsApp() {
 
                     sourceName = name
                     parsed = result
+                    selectedApartment = null
                     tabIndex = 0
                     snackbar.showSnackbar(
                         "Загружено " + result.defects.size +
@@ -236,34 +240,58 @@ fun DefectsApp() {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
+                navigationIcon = {
+                    if (selectedApartment != null) {
+                        IconButton(onClick = { selectedApartment = null }) {
+                            Icon(Icons.Outlined.ArrowBack, contentDescription = "Назад")
+                        }
+                    }
+                },
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OfficialLogo(compact = true)
-                        Spacer(Modifier.width(10.dp))
+                    val apartment = selectedApartment
+                    if (apartment != null) {
                         Column {
                             Text(
-                                "Устранение замечаний",
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                "Квартира " + apartment.apartment,
+                                fontWeight = FontWeight.Bold
                             )
                             Text(
-                                if (sourceName.isBlank()) "Мироновская, д. 30" else sourceName,
+                                "Корпус " + apartment.building + " · секция " + apartment.section,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Muted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                color = Muted
                             )
+                        }
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OfficialLogo(compact = true)
+                            Spacer(Modifier.width(9.dp))
+                            Column {
+                                Text(
+                                    "Устранение замечаний",
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    if (sourceName.isBlank()) "Мироновская, д. 30" else sourceName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Muted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 },
                 actions = {
-                    IconButton(onClick = ::chooseExcel) {
-                        Icon(Icons.Outlined.UploadFile, contentDescription = "Загрузить Excel")
-                    }
-                    if (parsed != null) {
-                        IconButton(onClick = ::startExport) {
-                            Icon(Icons.Outlined.Download, contentDescription = "Экспорт")
+                    if (selectedApartment == null) {
+                        IconButton(onClick = ::chooseExcel) {
+                            Icon(Icons.Outlined.UploadFile, contentDescription = "Загрузить Excel")
+                        }
+                        if (parsed != null) {
+                            IconButton(onClick = ::startExport) {
+                                Icon(Icons.Outlined.Download, contentDescription = "Экспорт")
+                            }
                         }
                     }
                 },
@@ -271,7 +299,7 @@ fun DefectsApp() {
             )
         },
         bottomBar = {
-            if (parsed != null) {
+            if (parsed != null && selectedApartment == null) {
                 NavigationBar(
                     containerColor = Color.White,
                     modifier = Modifier.navigationBarsPadding()
@@ -281,7 +309,7 @@ fun DefectsApp() {
                             selected = tabIndex == index,
                             onClick = { tabIndex = index },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label, fontSize = 11.sp) }
+                            label = { Text(tab.label, fontSize = 12.sp) }
                         )
                     }
                 }
@@ -295,17 +323,29 @@ fun DefectsApp() {
                 .padding(innerPadding)
         ) {
             val current = parsed
-            if (current == null) {
-                EmptyImportScreen(loading = loading, onImport = ::chooseExcel)
-            } else {
-                when (AppTab.entries[tabIndex]) {
+            when {
+                current == null -> EmptyImportScreen(loading = loading, onImport = ::chooseExcel)
+                selectedApartment != null -> {
+                    val apartment = selectedApartment!!
+                    ApartmentDetailScreen(
+                        apartment = apartment,
+                        defects = current.defects.defectsForApartment(
+                            apartment.building,
+                            apartment.section,
+                            apartment.apartment
+                        )
+                    )
+                }
+                else -> when (AppTab.entries[tabIndex]) {
                     AppTab.OVERVIEW -> OverviewScreen(
                         defects = current.defects,
                         warnings = current.warnings,
                         onReload = ::chooseExcel
                     )
-                    AppTab.APARTMENTS -> ApartmentsScreen(current.defects)
-                    AppTab.DEFECTS -> DefectsScreen(current.defects)
+                    AppTab.APARTMENTS -> ApartmentsScreen(
+                        defects = current.defects,
+                        onApartmentClick = { selectedApartment = it }
+                    )
                     AppTab.REPORTS -> ReportsScreen(current.defects, ::startExport)
                 }
             }
@@ -324,14 +364,13 @@ fun DefectsApp() {
                     ) {
                         CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 3.dp)
                         Spacer(Modifier.width(14.dp))
-                        Text("Обработка Excel…", fontWeight = FontWeight.Medium)
+                        Text("Обработка…", fontWeight = FontWeight.Medium)
                     }
                 }
             }
         }
     }
 }
-
 @Composable
 private fun EmptyImportScreen(loading: Boolean, onImport: () -> Unit) {
     Column(
@@ -426,15 +465,19 @@ private fun OverviewScreen(
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { MetricCard("Квартир всего", dashboard.totalApartments.toString(), Icons.Outlined.Apartment, BrandBlue) }
-                item { MetricCard("В реестре", dashboard.apartmentsInRegister.toString(), Icons.Outlined.ListAlt, BrandLightBlue) }
-                item { MetricCard("Замечаний", dashboard.totalDefects.toString(), Icons.Outlined.ErrorOutline, BrandDark) }
-                item { MetricCard("Просрочено", dashboard.overdue.toString(), Icons.Outlined.WarningAmber, Danger) }
-                item { MetricCard("Выполнено", dashboard.closed.toString(), Icons.Outlined.CheckCircle, ExcelGreen) }
+                item { MetricCard("В работе", dashboard.apartmentsWithOpen.toString(), Icons.Outlined.ErrorOutline, BrandDark) }
+                item { MetricCard("Квартир с просрочкой", dashboard.apartmentsWithOverdue.toString(), Icons.Outlined.WarningAmber, Danger) }
+                item { MetricCard("Закрыты", dashboard.apartmentsFullyDone.toString(), Icons.Outlined.CheckCircle, ExcelGreen) }
             }
         }
 
         item {
-            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onApartmentClick(item) },
+                colors = CardDefaults.elevatedCardColors(containerColor = Color.White)
+            ) {
                 Column(Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -531,8 +574,8 @@ private fun SectionCard(section: SectionSummary) {
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                if (section.overdue > 0) {
-                    StatusPill(section.overdue.toString() + " просроч.", Danger)
+                if (section.apartmentsWithOverdue > 0) {
+                    StatusPill(section.apartmentsWithOverdue.toString() + " просроч.", Danger)
                 } else {
                     StatusPill("Без просрочек", ExcelGreen)
                 }
@@ -541,8 +584,8 @@ private fun SectionCard(section: SectionSummary) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 SmallMetric("Замечаний", section.totalDefects)
-                SmallMetric("Открыто", section.open)
-                SmallMetric("Выполнено", section.closed)
+                SmallMetric("Открыто", section.openDefects)
+                SmallMetric("Выполнено", section.closedDefects)
             }
             Spacer(Modifier.height(10.dp))
             LinearProgressIndicator(
@@ -566,7 +609,7 @@ private fun SectionCard(section: SectionSummary) {
 }
 
 @Composable
-private fun ApartmentsScreen(defects: List<Defect>) {
+private fun ApartmentsScreen(defects: List<Defect>, onApartmentClick: (ApartmentSummary) -> Unit) {
     val summaries = remember(defects) { defects.byApartment() }
     var search by remember { mutableStateOf("") }
     var building by remember { mutableIntStateOf(0) }
@@ -587,7 +630,7 @@ private fun ApartmentsScreen(defects: List<Defect>) {
     ) {
         item {
             Text("Квартиры", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Сначала просрочки, затем синие и оранжевые замечания", color = Muted)
+            Text("Нажмите на квартиру — внутри будут все её замечания", color = Muted)
             Spacer(Modifier.height(12.dp))
 
             OutlinedTextField(
@@ -639,12 +682,14 @@ private fun ApartmentsScreen(defects: List<Defect>) {
                             )
                         }
                         when {
-                            item.overdue > 0 -> StatusPill(item.overdue.toString() + " просроч.", Danger)
+                            item.hasOverdue -> StatusPill("Просрочка", Danger)
                             item.reportedNotDone > 0 -> StatusPill(item.reportedNotDone.toString() + " синих", ExcelBlue)
                             item.attention > 0 -> StatusPill(item.attention.toString() + " внимание", ExcelOrange)
                             item.open > 0 -> StatusPill(item.open.toString() + " открыто", BrandDark)
                             else -> StatusPill("Всё выполнено", ExcelGreen)
                         }
+                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Outlined.ChevronRight, contentDescription = "Открыть", tint = Muted)
                     }
 
                     Spacer(Modifier.height(12.dp))
@@ -711,45 +756,14 @@ private fun FilterRow(
 }
 
 @Composable
-private fun DefectsScreen(defects: List<Defect>) {
-    var search by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(DefectFilter.ALL) }
-    var building by remember { mutableIntStateOf(0) }
-    var section by remember { mutableIntStateOf(0) }
+private fun ApartmentDetailScreen(
+    apartment: ApartmentSummary,
+    defects: List<Defect>
+) {
+    var filter by remember { mutableStateOf<DefectStatus?>(null) }
 
-    val filtered = remember(defects, search, filter, building, section) {
-        val query = search.trim().lowercase()
-        defects.filter { defect ->
-            val statusOk = when (filter) {
-                DefectFilter.ALL -> true
-                DefectFilter.OVERDUE -> defect.isOverdue()
-                DefectFilter.OPEN -> defect.status == DefectStatus.OPEN
-                DefectFilter.ATTENTION -> defect.status == DefectStatus.ATTENTION
-                DefectFilter.REPORTED -> defect.status == DefectStatus.REPORTED_NOT_DONE
-                DefectFilter.DONE -> defect.status == DefectStatus.DONE
-            }
-
-            val locationOk =
-                (building == 0 || defect.building == building) &&
-                    (section == 0 || defect.section == section)
-
-            val textOk = query.isBlank() || listOf(
-                defect.apartment.toString(),
-                defect.description,
-                defect.element,
-                defect.responsible
-            ).any { it.lowercase().contains(query) }
-
-            statusOk && locationOk && textOk
-        }.sortedWith(
-            compareByDescending<Defect> { it.isOverdue() }
-                .thenByDescending { it.status == DefectStatus.REPORTED_NOT_DONE }
-                .thenByDescending { it.status == DefectStatus.ATTENTION }
-                .thenByDescending { it.overdueDays() }
-                .thenBy { it.building }
-                .thenBy { it.section }
-                .thenBy { it.apartment }
-        )
+    val filtered = remember(defects, filter) {
+        if (filter == null) defects else defects.filter { it.status == filter }
     }
 
     LazyColumn(
@@ -758,51 +772,54 @@ private fun DefectsScreen(defects: List<Defect>) {
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Text("Что необходимо сделать", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Просроченные и спорные замечания автоматически наверху", color = Muted)
-            Spacer(Modifier.height(12.dp))
+            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(18.dp)) {
+                    Text("Состояние квартиры", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        SmallMetric("Всего", apartment.total)
+                        SmallMetric("Открыто", apartment.open)
+                        SmallMetric("Выполнено", apartment.closed)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (apartment.plainOpen > 0) StatusPill(apartment.plainOpen.toString() + " бел.", ExcelWhite)
+                        if (apartment.attention > 0) StatusPill(apartment.attention.toString() + " оранж.", ExcelOrange)
+                        if (apartment.reportedNotDone > 0) StatusPill(apartment.reportedNotDone.toString() + " син.", ExcelBlue)
+                        if (apartment.hasOverdue) StatusPill("Просрочка", Danger)
+                    }
+                }
+            }
+        }
 
-            OutlinedTextField(
-                value = search,
-                onValueChange = { search = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                label = { Text("Квартира, дефект, помещение или подрядчик") }
-            )
-
-            Spacer(Modifier.height(10.dp))
+        item {
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                DefectFilter.entries.forEach { item ->
-                    FilterChip(
-                        selected = filter == item,
-                        onClick = { filter = item },
-                        label = { Text(item.label) }
-                    )
+                FilterChip(
+                    selected = filter == null,
+                    onClick = { filter = null },
+                    label = { Text("Все (" + defects.size + ")") }
+                )
+                DefectStatus.entries.forEach { status ->
+                    val count = defects.count { it.status == status }
+                    if (count > 0) {
+                        FilterChip(
+                            selected = filter == status,
+                            onClick = { filter = status },
+                            label = { Text(shortStatus(status) + " (" + count + ")") }
+                        )
+                    }
                 }
             }
+        }
 
-            Spacer(Modifier.height(8.dp))
-            FilterRow(
-                labels = listOf("Все корпуса", "Корпус 1", "Корпус 2"),
-                selected = building,
-                onSelected = {
-                    building = it
-                    if (building == 0) section = 0
-                }
-            )
-            Spacer(Modifier.height(8.dp))
-            FilterRow(
-                labels = listOf("Все секции", "Секция 1", "Секция 2"),
-                selected = section,
-                onSelected = { section = it }
-            )
-
-            Spacer(Modifier.height(6.dp))
-            Text("Найдено замечаний: " + filtered.size, style = MaterialTheme.typography.labelMedium, color = Muted)
+        item {
+            Text("Замечания", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
 
         items(filtered) { defect ->
@@ -824,14 +841,20 @@ private fun ReportsScreen(defects: List<Defect>, onExport: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text("Графики и отчётность", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Отчёт строится по текущему загруженному реестру", color = Muted)
+            Text("Отчёт руководителю", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Коротко: квартиры, риски и ответственные", color = Muted)
         }
 
         item {
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
                 Column(Modifier.padding(18.dp)) {
-                    Text("Статусы из Excel", fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Статусы из Excel", fontWeight = FontWeight.Bold)
+                        Text("Готовность " + dashboard.completionPercent + "%", color = BrandBlue, fontWeight = FontWeight.Bold)
+                    }
                     Spacer(Modifier.height(14.dp))
                     StatusBar("Белые · не выполнено", dashboard.plainOpen, dashboard.totalDefects, ExcelWhite)
                     StatusBar("Оранжевые · внимание", dashboard.attention, dashboard.totalDefects, ExcelOrange)
@@ -849,9 +872,8 @@ private fun ReportsScreen(defects: List<Defect>, onExport: () -> Unit) {
                     sections.forEach { section ->
                         Text(section.title, fontWeight = FontWeight.SemiBold)
                         Text(
-                            section.closed.toString() + " выполнено · " +
-                                section.open + " открыто · " +
-                                section.overdue + " просрочено",
+                            section.apartmentsWithOpen.toString() + " кв. в работе · " +
+                                section.apartmentsWithOverdue + " кв. с просрочкой",
                             color = Muted,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -871,7 +893,8 @@ private fun ReportsScreen(defects: List<Defect>, onExport: () -> Unit) {
             item {
                 ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
                     Column(Modifier.padding(18.dp)) {
-                        Text("Открытые замечания по подрядчикам", fontWeight = FontWeight.Bold)
+                        Text("Подрядчики — открытые замечания", fontWeight = FontWeight.Bold)
+                        Text("Комбинированные записи разделяются между подрядчиками", color = Muted, style = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.height(14.dp))
                         BarList(responsible.map { it.name to it.open }, BrandBlue)
                     }
@@ -898,7 +921,7 @@ private fun ReportsScreen(defects: List<Defect>, onExport: () -> Unit) {
                         Icon(Icons.Outlined.Download, contentDescription = null, tint = BrandBlue)
                         Spacer(Modifier.width(10.dp))
                         Column {
-                            Text("Скачать Excel-отчёт", fontWeight = FontWeight.Bold)
+                            Text("Excel для руководства", fontWeight = FontWeight.Bold)
                             Text(
                                 "Сводка, 4 секции, квартиры, подрядчики, все замечания и диаграммы",
                                 color = Muted
@@ -971,15 +994,17 @@ private fun DefectCard(defect: Defect) {
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "Квартира " + defect.apartment,
+                        defect.element.ifBlank { "Замечание" },
                         fontWeight = FontWeight.Bold,
                         color = BrandBlue
                     )
-                    Text(
-                        "Корпус " + defect.building + " · секция " + defect.section,
-                        color = Muted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    if (defect.responsible.isNotBlank()) {
+                        Text(
+                            "Подрядчик: " + defect.responsible,
+                            color = Muted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
                 StatusPill(defect.status.title, statusColor)
             }
@@ -990,16 +1015,6 @@ private fun DefectCard(defect: Defect) {
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium
             )
-
-            val details = listOf(defect.element, defect.responsible).filter { it.isNotBlank() }
-            if (details.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    details.joinToString(" • "),
-                    color = Muted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
 
             defect.dueDate?.let { due ->
                 Spacer(Modifier.height(10.dp))
@@ -1131,12 +1146,19 @@ private fun OfficialLogo(compact: Boolean) {
             contentDescription = "ООО ГК СУ-555",
             contentScale = ContentScale.Fit,
             modifier = if (compact) {
-                Modifier.width(92.dp).height(36.dp).padding(horizontal = 5.dp, vertical = 3.dp)
+                Modifier.width(82.dp).height(31.dp).padding(horizontal = 5.dp, vertical = 3.dp)
             } else {
                 Modifier.width(244.dp).height(102.dp).padding(horizontal = 16.dp, vertical = 12.dp)
             }
         )
     }
+}
+
+private fun shortStatus(status: DefectStatus): String = when (status) {
+    DefectStatus.DONE -> "Выполнено"
+    DefectStatus.OPEN -> "Белые"
+    DefectStatus.ATTENTION -> "Внимание"
+    DefectStatus.REPORTED_NOT_DONE -> "Синие"
 }
 
 private fun statusColor(status: DefectStatus): Color = when (status) {
