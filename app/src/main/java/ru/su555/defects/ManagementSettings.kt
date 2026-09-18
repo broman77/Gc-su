@@ -19,6 +19,21 @@ object ManagementSettings {
         )
     }
 
+    fun crewSize(context: Context, contractor: String): Int {
+        val key = "crew_" + contractor.lowercase().replace(Regex("[^а-яa-z0-9]+"), "_")
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(key, 0)
+            .coerceAtLeast(0)
+    }
+
+    fun saveCrewSize(context: Context, contractor: String, size: Int) {
+        val key = "crew_" + contractor.lowercase().replace(Regex("[^а-яa-z0-9]+"), "_")
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(key, size.coerceAtLeast(0))
+            .apply()
+    }
+
     fun save(context: Context, norms: LaborNorms) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
