@@ -37,6 +37,7 @@ object MironovskayaProject {
 }
 
 data class Defect(
+    val id: Long = 0L,
     val building: Int,
     val section: Int,
     val apartment: Int,
@@ -47,7 +48,9 @@ data class Defect(
     val status: DefectStatus,
     val dueDate: LocalDate?,
     val sourceSheet: String,
-    val sourceRow: Int
+    val sourceRow: Int,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
 ) {
     val apartmentLabel: String
         get() = "Корпус $building · секция $section · кв. $apartment"
@@ -208,6 +211,24 @@ fun List<Defect>.byCategory(today: LocalDate = LocalDate.now()): List<CategorySu
         }
         .sortedByDescending { it.total }
 
+fun canonicalResponsibleName(value: String): String {
+    val cleaned = value
+        .trim()
+        .replace(Regex("""\s+"""), " ")
+
+    val key = cleaned
+        .lowercase()
+        .replace('ё', 'е')
+        .replace(".", "")
+        .trim()
+
+    return when (key) {
+        "мкд", "стм", "сму" -> "СМУ"
+        "электрика", "электрики", "электрик", "сантехника", "сантехники", "сантехник", "уир" -> "УИР"
+        else -> cleaned
+    }
+}
+
 fun splitResponsible(value: String): List<String> {
     if (value.isBlank()) return listOf("Не указан")
 
@@ -223,7 +244,7 @@ fun splitResponsible(value: String): List<String> {
 
     val parts = normalized
         .split("+")
-        .map { it.trim() }
+        .map { canonicalResponsibleName(it) }
         .filter { it.isNotBlank() }
         .distinctBy { it.lowercase() }
 
