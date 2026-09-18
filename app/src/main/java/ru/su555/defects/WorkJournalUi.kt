@@ -1263,6 +1263,8 @@ private fun DefectWorkCard(
     onArchive: () -> Unit,
     onPhoto: (String) -> Unit
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
     ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
         Column(Modifier.padding(15.dp)) {
             Row(verticalAlignment = Alignment.Top) {
@@ -1278,7 +1280,58 @@ private fun DefectWorkCard(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                WorkPill(shortWorkStatus(defect.status), workStatusColor(defect.status))
+                Column(horizontalAlignment = Alignment.End) {
+                    WorkPill(shortWorkStatus(defect.status), workStatusColor(defect.status))
+                    if (defect.priority != DefectPriority.NORMAL) {
+                        Spacer(Modifier.height(4.dp))
+                        WorkPill(
+                            defect.priority.title,
+                            if (defect.priority == DefectPriority.CRITICAL) WDanger else WOrange
+                        )
+                    }
+                }
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Outlined.MoreVert, contentDescription = "Действия")
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Редактировать") },
+                            onClick = { menuExpanded = false; onEdit() },
+                            leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("История") },
+                            onClick = { menuExpanded = false; onHistory() },
+                            leadingIcon = { Icon(Icons.Outlined.History, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Фото до / проверка") },
+                            onClick = { menuExpanded = false; onPhoto("До / проверка") },
+                            leadingIcon = { Icon(Icons.Outlined.CameraAlt, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Фото после") },
+                            onClick = { menuExpanded = false; onPhoto("После") },
+                            leadingIcon = { Icon(Icons.Outlined.CameraAlt, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("В архив") },
+                            onClick = { menuExpanded = false; onArchive() },
+                            leadingIcon = { Icon(Icons.Outlined.Archive, contentDescription = null) }
+                        )
+                    }
+                }
+            }
+            if (defect.assignedEmployee.isNotBlank()) {
+                Text(
+                    "Ответственный: " + defect.assignedEmployee,
+                    color = WMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
             Spacer(Modifier.height(9.dp))
             Text(defect.description)
@@ -1291,6 +1344,15 @@ private fun DefectWorkCard(
                     color = if (defect.isOverdue()) WDanger else WMuted,
                     fontWeight = if (defect.isOverdue()) FontWeight.SemiBold else FontWeight.Normal
                 )
+            }
+
+            if (defect.reportedAt != null || defect.verifiedAt != null || defect.completedAt != null) {
+                Spacer(Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    defect.reportedAt?.let { Text("Отчёт подрядчика: " + formatHistoryTime(it), color = WMuted, fontSize = 12.sp) }
+                    defect.verifiedAt?.let { Text("Проверено: " + formatHistoryTime(it), color = WMuted, fontSize = 12.sp) }
+                    defect.completedAt?.let { Text("Принято: " + formatHistoryTime(it), color = WGreen, fontSize = 12.sp) }
+                }
             }
 
             Spacer(Modifier.height(10.dp))
@@ -1327,32 +1389,6 @@ private fun DefectWorkCard(
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                TextButton(onClick = onEdit) {
-                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Изменить")
-                }
-                TextButton(onClick = onHistory) {
-                    Icon(Icons.Outlined.History, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("История")
-                }
-                TextButton(onClick = { onPhoto("До / проверка") }) {
-                    Icon(Icons.Outlined.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Фото до")
-                }
-                TextButton(onClick = { onPhoto("После") }) {
-                    Icon(Icons.Outlined.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Фото после")
-                }
-                TextButton(onClick = onArchive) {
-                    Icon(Icons.Outlined.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Архив")
-                }
-            }
         }
     }
 }
@@ -1515,6 +1551,173 @@ private fun WorkReports(
             }
         }
     }
+}
+
+@Composable
+private fun ManagementSettingsDialog(
+    norms: LaborNorms,
+    reminderEnabled: Boolean,
+    archiveCount: Int,
+    onDismiss: () -> Unit,
+    onSaveNorms: (LaborNorms) -> Unit,
+    onReminder: (Boolean) -> Unit,
+    onArchive: () -> Unit,
+    onBackup: () -> Unit,
+    onRestore: () -> Unit
+) {
+    val context = LocalContext.current
+
+    var defaultHours by remember { mutableStateOf(norms.defaultHours.toString()) }
+    var electricalHours by remember { mutableStateOf(norms.electricalPlumbingHours.toString()) }
+    var finishingHours by remember { mutableStateOf(norms.finishingHours.toString()) }
+    var tileHours by remember { mutableStateOf(norms.tileHours.toString()) }
+    var ceilingHours by remember { mutableStateOf(norms.ceilingHours.toString()) }
+    var glassHours by remember { mutableStateOf(norms.glassHours.toString()) }
+    var doorsHours by remember { mutableStateOf(norms.doorsFloorHours.toString()) }
+    var targetDays by remember { mutableStateOf(norms.targetWorkingDays.toString()) }
+
+    var smuCrew by remember { mutableStateOf(ManagementSettings.crewSize(context, "СМУ").toString()) }
+    var uirCrew by remember { mutableStateOf(ManagementSettings.crewSize(context, "УИР").toString()) }
+    var novatexCrew by remember { mutableStateOf(ManagementSettings.crewSize(context, "Новатекс").toString()) }
+    var sprCrew by remember { mutableStateOf(ManagementSettings.crewSize(context, "СПР").toString()) }
+    var error by remember { mutableStateOf("") }
+
+    fun number(raw: String): Double? = raw.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+    fun crew(raw: String): Int = raw.toIntOrNull()?.coerceAtLeast(0) ?: 0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Настройки") },
+        text = {
+            LazyColumn(
+                modifier = Modifier.height(560.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
+                    Text("Планирование ресурсов", fontWeight = FontWeight.Bold)
+                    Text("Укажите целевой срок и текущую численность бригад.", color = WMuted)
+                }
+                item {
+                    OutlinedTextField(
+                        value = targetDays,
+                        onValueChange = { targetDays = it.filter(Char::isDigit) },
+                        label = { Text("Закрыть объём за, рабочих дней") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item { Text("Текущая численность", fontWeight = FontWeight.SemiBold) }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(smuCrew, { smuCrew = it.filter(Char::isDigit) }, label = { Text("СМУ") }, modifier = Modifier.weight(1f))
+                        OutlinedTextField(uirCrew, { uirCrew = it.filter(Char::isDigit) }, label = { Text("УИР") }, modifier = Modifier.weight(1f))
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(novatexCrew, { novatexCrew = it.filter(Char::isDigit) }, label = { Text("Новатекс") }, modifier = Modifier.weight(1f))
+                        OutlinedTextField(sprCrew, { sprCrew = it.filter(Char::isDigit) }, label = { Text("СПР") }, modifier = Modifier.weight(1f))
+                    }
+                }
+                item {
+                    Text("Нормативы, чел.-ч на замечание", fontWeight = FontWeight.SemiBold)
+                    Text("Их можно подогнать под фактическую производительность на объекте.", color = WMuted)
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(defaultHours, { defaultHours = it }, label = { Text("Прочее") }, modifier = Modifier.weight(1f))
+                        OutlinedTextField(electricalHours, { electricalHours = it }, label = { Text("Электр./сант.") }, modifier = Modifier.weight(1f))
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(finishingHours, { finishingHours = it }, label = { Text("Отделка") }, modifier = Modifier.weight(1f))
+                        OutlinedTextField(tileHours, { tileHours = it }, label = { Text("Плитка") }, modifier = Modifier.weight(1f))
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(ceilingHours, { ceilingHours = it }, label = { Text("Потолок") }, modifier = Modifier.weight(1f))
+                        OutlinedTextField(glassHours, { glassHours = it }, label = { Text("Стекло") }, modifier = Modifier.weight(1f))
+                    }
+                }
+                item {
+                    OutlinedTextField(
+                        value = doorsHours,
+                        onValueChange = { doorsHours = it },
+                        label = { Text("Двери / полы") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item { HorizontalDivider() }
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Notifications, contentDescription = null, tint = WBrandBlue)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Ежедневная сводка", fontWeight = FontWeight.SemiBold)
+                            Text("08:00 · просрочка и сроки", color = WMuted)
+                        }
+                        Switch(checked = reminderEnabled, onCheckedChange = onReminder)
+                    }
+                }
+                item {
+                    OutlinedButton(onClick = onArchive, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.Archive, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Архив (" + archiveCount + ")")
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onBackup, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Outlined.Save, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Резервная копия")
+                        }
+                        OutlinedButton(onClick = onRestore, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Outlined.Restore, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Восстановить")
+                        }
+                    }
+                }
+                if (error.isNotBlank()) item { Text(error, color = WDanger) }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val values = listOf(
+                    number(defaultHours), number(electricalHours), number(finishingHours),
+                    number(tileHours), number(ceilingHours), number(glassHours), number(doorsHours)
+                )
+                val days = targetDays.toIntOrNull()?.takeIf { it in 1..60 }
+                if (values.any { it == null } || days == null) {
+                    error = "Проверьте нормативы и целевой срок"
+                    return@Button
+                }
+
+                val updated = LaborNorms(
+                    defaultHours = values[0]!!,
+                    electricalPlumbingHours = values[1]!!,
+                    finishingHours = values[2]!!,
+                    tileHours = values[3]!!,
+                    ceilingHours = values[4]!!,
+                    glassHours = values[5]!!,
+                    doorsFloorHours = values[6]!!,
+                    targetWorkingDays = days
+                )
+                onSaveNorms(updated)
+                ManagementSettings.saveCrewSize(context, "СМУ", crew(smuCrew))
+                ManagementSettings.saveCrewSize(context, "УИР", crew(uirCrew))
+                ManagementSettings.saveCrewSize(context, "Новатекс", crew(novatexCrew))
+                ManagementSettings.saveCrewSize(context, "СПР", crew(sprCrew))
+                onDismiss()
+            }) { Text("Сохранить") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть") }
+        }
+    )
 }
 
 @Composable
