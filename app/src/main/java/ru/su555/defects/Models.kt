@@ -110,6 +110,15 @@ data class CategorySummary(
     val closed: Int
 )
 
+data class ContractorResourceEstimate(
+    val name: String,
+    val openDefects: Int,
+    val apartments: Int,
+    val laborHours: Double,
+    val recommendedPeople: Int,
+    val estimatedWorkingDays: Double
+)
+
 data class Dashboard(
     val totalApartments: Int,
     val apartmentsInRegister: Int,
@@ -238,8 +247,53 @@ fun canonicalResponsibleName(value: String): String {
     }
 }
 
+private fun isUnspecifiedResponsible(value: String): Boolean {
+    val key = value
+        .trim()
+        .lowercase()
+        .replace('ё', 'е')
+        .replace(".", "")
+
+    return key.isBlank() ||
+        key == "-" ||
+        key == "не указан" ||
+        key == "не указано" ||
+        key == "нет"
+}
+
+private fun containsAny(text: String, vararg tokens: String): Boolean =
+    tokens.any { text.contains(it) }
+
+fun inferredResponsible(defect: Defect): String? {
+    val text = (defect.element + " " + defect.description)
+        .lowercase()
+        .replace('ё', 'е')
+
+    return when {
+        containsAny(text, "стекл", "стеклопак") -> "Новатекс"
+        containsAny(text, "потол") -> "СПР"
+
+        containsAny(
+            text,
+            "электр", "розет", "выключател", "автомат", "щит", "кабел",
+            "провод", "светиль", "освещен", "сантех", "унитаз", "раковин",
+            "смесител", "сифон", "труб", "стояк", "радиатор", "полотенцесуш",
+            "канализ", "водоснаб", "водоотвед"
+        ) -> "УИР"
+
+        containsAny(
+            text,
+            "отдел", "плитк", "керамогран", "затир", "штукатур", "шпатлев",
+            "шпаклев", "окрас", "покрас", "краск", "обои", "ламин", "плинтус",
+            "напольн", "стен", "откос", "двер", "наличник", "порог"
+        ) -> "СМУ"
+
+        else -> null
+    }
+}
+
 fun splitResponsible(value: String): List<String> {
-    if (value.isBlank()) return listOf("Не указан")
+    if (isUnspecifiedResponsible(value)) return listOf("Не указан")
 
     val normalized = value
         .replace("＋", "+")
@@ -260,13 +314,26 @@ fun splitResponsible(value: String): List<String> {
     return if (parts.isEmpty()) listOf("Не указан") else parts
 }
 
+fun responsibleNames(defect: Defect): List<String> {
+    if (!isUnspecifiedResponsible(defect.responsible)) {
+        return splitResponsible(defect.responsible)
+    }
+
+    return inferredResponsible(defect)?.let { listOf(it) } ?: listOf("Не указан")
+}
+
+fun displayResponsible(defect: Defect): String {
+    if (!isUnspecifiedResponsible(defect.responsible)) return defect.responsible.trim()
+    return inferredResponsible(defect)?.let { "$it · авто" } ?: "Не указан"
+}
+
 fun List<Defect>.byResponsible(today: LocalDate = LocalDate.now()): List<CategorySummary> {
     data class Counts(var total: Int = 0, var open: Int = 0, var overdue: Int = 0, var closed: Int = 0)
 
     val map = linkedMapOf<String, Counts>()
 
     for (defect in this) {
-        for (name in splitResponsible(defect.responsible)) {
+        for (name in responsibleNames(defect)) {
             val key = map.keys.firstOrNull { it.equals(name, ignoreCase = true) } ?: name
             val counts = map.getOrPut(key) { Counts() }
             counts.total++
@@ -288,6 +355,63 @@ fun List<Defect>.byResponsible(today: LocalDate = LocalDate.now()): List<Categor
             .thenByDescending { it.overdue }
             .thenBy { it.name.lowercase() }
     )
+}
+
+fun estimatedLaborHours(defect: Defect): Double {
+    val text = (defect.element + " " + defect.description)
+        .lowercase()
+        .replace('ё', 'е')
+
+    return when {
+        containsAny(text, "стеклопак", "стекл") -> 2.5
+        containsAny(text, "потол") -> 2.0
+        containsAny(text, "плитк", "керамогран", "затир") -> 2.0
+        containsAny(text, "штукатур", "шпатлев", "шпаклев", "окрас", "покрас", "обои") -> 1.75
+
+        containsAny(
+            text,
+            "электр", "розет", "выключател", "автомат", "щит", "кабел",
+            "провод", "сантех", "унитаз", "раковин", "смесител", "сифон",
+            "труб", "радиатор", "канализ"
+        ) -> 1.5
+
+        containsAny(text, "двер", "наличник", "порог", "ламин", "плинтус") -> 1.25
+        else -> 1.0
+    }
+}
+
+fun List<Defect>.contractorResourceEstimates(): List<ContractorResourceEstimate> {
+    data class Bucket(
+        val defects: MutableList<Defect> = mutableListOf()
+    )
+
+    val buckets = linkedMapOf<String, Bucket>()
+
+    filter { !it.isClosed }.forEach { defect ->
+        responsibleNames(defect).forEach { name ->
+            val key = buckets.keys.firstOrNull { it.equals(name, ignoreCase = true) } ?: name
+            buckets.getOrPut(key) { Bucket() }.defects += defect
+        }
+    }
+
+    return buckets.map { (name, bucket) ->
+        val rows = bucket.defects
+        val hours = rows.sumOf(::estimatedLaborHours)
+        val people = if (hours <= 0.0) 0 else kotlin.math.ceil(hours / 80.0).toInt().coerceAtLeast(1)
+        val days = if (people == 0) 0.0 else hours / (people * 8.0)
+
+        ContractorResourceEstimate(
+            name = name,
+            openDefects = rows.size,
+            apartments = rows
+                .map { Triple(it.building, it.section, it.apartment) }
+                .distinct()
+                .size,
+            laborHours = hours,
+            recommendedPeople = people,
+            estimatedWorkingDays = days
+        )
+    }.sortedByDescending { it.laborHours }
 }
 
 fun List<Defect>.defectsForApartment(
