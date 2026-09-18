@@ -244,14 +244,14 @@ object XlsxExporter {
 
     private fun statusChart() = barChart(
         title = "Статус замечаний",
-        categoryFormula = "'Сводка'!$A$3:$A$5",
-        valueFormula = "'Сводка'!$B$3:$B$5"
+        categoryFormula = "'Сводка'!\$A\$3:\$A\$5",
+        valueFormula = "'Сводка'!\$B\$3:\$B\$5"
     )
 
     private fun categoryChart(count: Int) = barChart(
         title = "Замечания по категориям",
-        categoryFormula = "'Категории'!$A$2:$A${count + 1}",
-        valueFormula = "'Категории'!$B$2:$B${count + 1}"
+        categoryFormula = "'Категории'!\$A\$2:\$A${count + 1}",
+        valueFormula = "'Категории'!\$B\$2:\$B${count + 1}"
     )
 
     private fun barChart(title: String, categoryFormula: String, valueFormula: String): String = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -291,6 +291,6 @@ object XlsxExporter {
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
-        .replace(""", "&quot;")
+        .replace("\"", "&quot;")
         .replace("'", "&apos;")
 }
