@@ -22,10 +22,10 @@ data class ProjectSection(
 
 object MironovskayaProject {
     val sections = listOf(
-        ProjectSection(building = 1, section = 1, apartmentFrom = 1, apartmentTo = 161),
-        ProjectSection(building = 1, section = 2, apartmentFrom = 162, apartmentTo = 269),
-        ProjectSection(building = 2, section = 1, apartmentFrom = 1, apartmentTo = 161),
-        ProjectSection(building = 2, section = 2, apartmentFrom = 162, apartmentTo = 299)
+        ProjectSection(1, 1, 1, 161),
+        ProjectSection(1, 2, 162, 269),
+        ProjectSection(2, 1, 1, 161),
+        ProjectSection(2, 2, 162, 299)
     )
 
     val totalApartments: Int = sections.sumOf { it.apartmentCount }
@@ -34,9 +34,6 @@ object MironovskayaProject {
         sections.firstOrNull {
             it.building == building && apartment in it.apartmentFrom..it.apartmentTo
         }?.section
-
-    fun isValidApartment(building: Int, apartment: Int): Boolean =
-        sectionFor(building, apartment) != null
 }
 
 data class Defect(
@@ -74,12 +71,13 @@ data class ApartmentSummary(
     val plainOpen: Int,
     val attention: Int,
     val reportedNotDone: Int,
-    val overdue: Int,
+    val overdueDefects: Int,
     val closed: Int,
     val nearestDue: LocalDate?,
     val maxOverdueDays: Long
 ) {
     val title: String get() = "Корпус $building · секция $section · кв. $apartment"
+    val hasOverdue: Boolean get() = overdueDefects > 0
 }
 
 data class SectionSummary(
@@ -88,16 +86,17 @@ data class SectionSummary(
     val apartmentCapacity: Int,
     val apartmentsInRegister: Int,
     val apartmentsWithOpen: Int,
+    val apartmentsWithOverdue: Int,
     val totalDefects: Int,
-    val open: Int,
+    val openDefects: Int,
     val attention: Int,
     val reportedNotDone: Int,
-    val overdue: Int,
-    val closed: Int
+    val overdueDefects: Int,
+    val closedDefects: Int
 ) {
     val title: String get() = "Корпус $building · секция $section"
     val completionPercent: Int
-        get() = if (totalDefects == 0) 0 else ((closed * 100.0) / totalDefects).toInt()
+        get() = if (totalDefects == 0) 0 else ((closedDefects * 100.0) / totalDefects).toInt()
 }
 
 data class CategorySummary(
@@ -113,11 +112,12 @@ data class Dashboard(
     val apartmentsInRegister: Int,
     val apartmentsWithOpen: Int,
     val apartmentsWithOverdue: Int,
+    val apartmentsFullyDone: Int,
     val totalDefects: Int,
     val plainOpen: Int,
     val attention: Int,
     val reportedNotDone: Int,
-    val overdue: Int,
+    val overdueDefects: Int,
     val closed: Int,
     val completionPercent: Int
 ) {
@@ -127,16 +127,18 @@ data class Dashboard(
 fun List<Defect>.dashboard(today: LocalDate = LocalDate.now()): Dashboard {
     val grouped = groupBy { Triple(it.building, it.section, it.apartment) }
     val closed = count { it.isClosed }
+    val withOpen = grouped.count { (_, rows) -> rows.any { !it.isClosed } }
     return Dashboard(
         totalApartments = MironovskayaProject.totalApartments,
         apartmentsInRegister = grouped.size,
-        apartmentsWithOpen = grouped.count { (_, rows) -> rows.any { !it.isClosed } },
+        apartmentsWithOpen = withOpen,
         apartmentsWithOverdue = grouped.count { (_, rows) -> rows.any { it.isOverdue(today) } },
+        apartmentsFullyDone = grouped.size - withOpen,
         totalDefects = size,
         plainOpen = count { it.status == DefectStatus.OPEN },
         attention = count { it.status == DefectStatus.ATTENTION },
         reportedNotDone = count { it.status == DefectStatus.REPORTED_NOT_DONE },
-        overdue = count { it.isOverdue(today) },
+        overdueDefects = count { it.isOverdue(today) },
         closed = closed,
         completionPercent = if (isEmpty()) 0 else ((closed * 100.0) / size).toInt()
     )
@@ -155,14 +157,14 @@ fun List<Defect>.byApartment(today: LocalDate = LocalDate.now()): List<Apartment
                 plainOpen = rows.count { it.status == DefectStatus.OPEN },
                 attention = rows.count { it.status == DefectStatus.ATTENTION },
                 reportedNotDone = rows.count { it.status == DefectStatus.REPORTED_NOT_DONE },
-                overdue = rows.count { it.isOverdue(today) },
+                overdueDefects = rows.count { it.isOverdue(today) },
                 closed = rows.count { it.isClosed },
                 nearestDue = openRows.mapNotNull { it.dueDate }.minOrNull(),
                 maxOverdueDays = rows.maxOfOrNull { it.overdueDays(today) } ?: 0
             )
         }
         .sortedWith(
-            compareByDescending<ApartmentSummary> { it.overdue }
+            compareByDescending<ApartmentSummary> { it.hasOverdue }
                 .thenByDescending { it.reportedNotDone }
                 .thenByDescending { it.attention }
                 .thenByDescending { it.open }
@@ -183,12 +185,13 @@ fun List<Defect>.bySection(today: LocalDate = LocalDate.now()): List<SectionSumm
             apartmentCapacity = projectSection.apartmentCount,
             apartmentsInRegister = grouped.size,
             apartmentsWithOpen = grouped.count { (_, defects) -> defects.any { !it.isClosed } },
+            apartmentsWithOverdue = grouped.count { (_, defects) -> defects.any { it.isOverdue(today) } },
             totalDefects = rows.size,
-            open = rows.count { !it.isClosed },
+            openDefects = rows.count { !it.isClosed },
             attention = rows.count { it.status == DefectStatus.ATTENTION },
             reportedNotDone = rows.count { it.status == DefectStatus.REPORTED_NOT_DONE },
-            overdue = rows.count { it.isOverdue(today) },
-            closed = rows.count { it.isClosed }
+            overdueDefects = rows.count { it.isOverdue(today) },
+            closedDefects = rows.count { it.isClosed }
         )
     }
 
@@ -205,15 +208,70 @@ fun List<Defect>.byCategory(today: LocalDate = LocalDate.now()): List<CategorySu
         }
         .sortedByDescending { it.total }
 
-fun List<Defect>.byResponsible(today: LocalDate = LocalDate.now()): List<CategorySummary> =
-    groupBy { it.responsible.ifBlank { "Не указан" } }
-        .map { (name, rows) ->
-            CategorySummary(
-                name = name,
-                total = rows.size,
-                open = rows.count { !it.isClosed },
-                overdue = rows.count { it.isOverdue(today) },
-                closed = rows.count { it.isClosed }
-            )
+fun splitResponsible(value: String): List<String> {
+    if (value.isBlank()) return listOf("Не указан")
+
+    val normalized = value
+        .replace("＋", "+")
+        .replace("&", "+")
+        .replace("/", "+")
+        .replace("\\", "+")
+        .replace(";", "+")
+        .replace(",", "+")
+        .replace(Regex("""\s+\+\s+"""), "+")
+        .trim()
+
+    val parts = normalized
+        .split("+")
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase() }
+
+    return if (parts.isEmpty()) listOf("Не указан") else parts
+}
+
+fun List<Defect>.byResponsible(today: LocalDate = LocalDate.now()): List<CategorySummary> {
+    data class Counts(var total: Int = 0, var open: Int = 0, var overdue: Int = 0, var closed: Int = 0)
+
+    val map = linkedMapOf<String, Counts>()
+
+    for (defect in this) {
+        for (name in splitResponsible(defect.responsible)) {
+            val key = map.keys.firstOrNull { it.equals(name, ignoreCase = true) } ?: name
+            val counts = map.getOrPut(key) { Counts() }
+            counts.total++
+            if (defect.isClosed) counts.closed++ else counts.open++
+            if (defect.isOverdue(today)) counts.overdue++
         }
-        .sortedByDescending { it.open }
+    }
+
+    return map.map { (name, counts) ->
+        CategorySummary(
+            name = name,
+            total = counts.total,
+            open = counts.open,
+            overdue = counts.overdue,
+            closed = counts.closed
+        )
+    }.sortedWith(
+        compareByDescending<CategorySummary> { it.open }
+            .thenByDescending { it.overdue }
+            .thenBy { it.name.lowercase() }
+    )
+}
+
+fun List<Defect>.defectsForApartment(
+    building: Int,
+    section: Int,
+    apartment: Int
+): List<Defect> =
+    filter {
+        it.building == building &&
+            it.section == section &&
+            it.apartment == apartment
+    }.sortedWith(
+        compareByDescending<Defect> { it.isOverdue() }
+            .thenByDescending { it.status == DefectStatus.REPORTED_NOT_DONE }
+            .thenByDescending { it.status == DefectStatus.ATTENTION }
+            .thenBy { it.element }
+    )
