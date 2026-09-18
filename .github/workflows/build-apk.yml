@@ -3,6 +3,8 @@ name: Build Android APK
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
@@ -39,8 +41,13 @@ jobs:
           path: Ustranenie-zamechaniy.apk
 
       - name: Publish latest beta release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release delete beta-latest --cleanup-tag --yes || true
-          gh release create beta-latest Ustranenie-zamechaniy.apk             --target "${GITHUB_SHA}"             --title "Устранение замечаний — beta 0.1.0"             --notes "Автоматическая сборка APK. Загрузка XLSX, аналитика просрочек, квартиры, графики и экспорт XLSX."             --prerelease
+        run: >
+          gh release delete beta-latest --cleanup-tag --yes || true;
+          gh release create beta-latest Ustranenie-zamechaniy.apk
+          --target "${GITHUB_SHA}"
+          --title "Устранение замечаний — beta 0.1.0"
+          --notes "Автоматическая сборка APK. Загрузка XLSX, аналитика просрочек, квартиры, графики и экспорт XLSX."
+          --prerelease
