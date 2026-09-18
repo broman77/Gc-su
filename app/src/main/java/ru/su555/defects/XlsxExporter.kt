@@ -32,7 +32,7 @@ object XlsxExporter {
             add("xl/_rels/workbook.xml.rels", workbookRels())
             add("xl/styles.xml", styles())
 
-            add("xl/worksheets/sheet1.xml", summarySheet(dashboard))
+            add("xl/worksheets/sheet1.xml", summarySheet(dashboard, defects))
             add("xl/worksheets/_rels/sheet1.xml.rels", sheetDrawingRel(1))
             add("xl/drawings/drawing1.xml", drawingXml("Статусы замечаний", 1))
             add("xl/drawings/_rels/drawing1.xml.rels", drawingRel(1))
@@ -52,13 +52,14 @@ object XlsxExporter {
         return out.toByteArray()
     }
 
-    private fun summarySheet(d: Dashboard): String {
+    private fun summarySheet(d: Dashboard, currentDefects: List<Defect>): String {
         val rows = listOf(
             row("Показатель", "Значение", header = true),
             row("Квартир всего", d.totalApartments),
             row("Квартир в реестре", d.apartmentsInRegister),
             row("Квартир в работе", d.apartmentsWithOpen),
             row("Квартир с просрочкой", d.apartmentsWithOverdue),
+            row("Критичных открытых замечаний", currentDefects.count { !it.isClosed && it.priority == DefectPriority.CRITICAL }),
             row("Полностью закрытых квартир", d.apartmentsFullyDone),
             row("Всего замечаний", d.totalDefects),
             listOf(XCell("Белые · не выполнено"), XCell(d.plainOpen, 6)),
