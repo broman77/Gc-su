@@ -472,12 +472,16 @@ private fun OverviewScreen(
         }
 
         item {
-            ElevatedCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onApartmentClick(item) },
-                colors = CardDefaults.elevatedCardColors(containerColor = Color.White)
-            ) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { MetricCard("С просрочкой", dashboard.apartmentsWithOverdue.toString(), Icons.Outlined.WarningAmber, Danger) }
+                item { MetricCard("В работе", dashboard.apartmentsWithOpen.toString(), Icons.Outlined.Schedule, ExcelOrange) }
+                item { MetricCard("Закрыты", dashboard.apartmentsFullyDone.toString(), Icons.Outlined.CheckCircle, ExcelGreen) }
+                item { MetricCard("Готовность", dashboard.completionPercent.toString() + "%", Icons.Outlined.BarChart, BrandBlue) }
+            }
+        }
+
+        item {
+            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
                 Column(Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -575,7 +579,7 @@ private fun SectionCard(section: SectionSummary) {
                     )
                 }
                 if (section.apartmentsWithOverdue > 0) {
-                    StatusPill(section.apartmentsWithOverdue.toString() + " просроч.", Danger)
+                    StatusPill(section.apartmentsWithOverdue.toString() + " кв. просроч.", Danger)
                 } else {
                     StatusPill("Без просрочек", ExcelGreen)
                 }
@@ -662,7 +666,12 @@ private fun ApartmentsScreen(defects: List<Defect>, onApartmentClick: (Apartment
         }
 
         items(filtered) { item ->
-            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = Color.White)) {
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onApartmentClick(item) },
+                colors = CardDefaults.elevatedCardColors(containerColor = Color.White)
+            ) {
                 Column(Modifier.padding(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
