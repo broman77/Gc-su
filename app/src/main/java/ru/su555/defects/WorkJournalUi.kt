@@ -46,6 +46,11 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PriorityHigh
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.NavigateBefore
 import androidx.compose.material.icons.outlined.NavigateNext
 import androidx.compose.material.icons.outlined.Notifications
@@ -60,6 +65,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -75,6 +82,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -124,6 +132,7 @@ private val WWhite = Color(0xFFE6EAEE)
 
 private enum class WorkTab(val label: String, val icon: ImageVector) {
     OVERVIEW("Сводка", Icons.Outlined.Home),
+    ATTENTION("Внимание", Icons.Outlined.PriorityHigh),
     APARTMENTS("Квартиры", Icons.Outlined.Apartment),
     REPORTS("Отчёты", Icons.Outlined.BarChart)
 }
@@ -159,6 +168,9 @@ fun WorkJournalApp() {
     var refreshToken by remember { mutableIntStateOf(0) }
     var walkMode by remember { mutableStateOf(false) }
     var reminderEnabled by remember { mutableStateOf(ReminderScheduler.isEnabled(context)) }
+    var showSettings by remember { mutableStateOf(false) }
+    var laborNorms by remember { mutableStateOf(ManagementSettings.load(context)) }
+    var backupBytes by remember { mutableStateOf<ByteArray?>(null) }
 
     fun refresh() {
         val loaded = store.activeDefects()
@@ -191,6 +203,51 @@ fun WorkJournalApp() {
                 }.onFailure {
                     snackbar.showSnackbar("Ошибка сохранения: " + (it.message ?: "неизвестно"))
                 }
+            }
+        }
+    }
+
+    val backupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        val bytes = backupBytes
+        if (uri != null && bytes != null) {
+            scope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                            ?: error("Не удалось сохранить резервную копию")
+                    }
+                }.onSuccess {
+                    snackbar.showSnackbar("Резервная копия сохранена")
+                }.onFailure {
+                    snackbar.showSnackbar("Ошибка копии: " + (it.message ?: "неизвестно"))
+                }
+            }
+        }
+    }
+
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                loading = true
+                runCatching {
+                    val bytes = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            ?: error("Не удалось открыть резервную копию")
+                    }
+                    withContext(Dispatchers.IO) {
+                        BackupManager.restore(context, store, bytes)
+                    }
+                    refresh()
+                }.onSuccess {
+                    snackbar.showSnackbar("Резервная копия восстановлена")
+                }.onFailure {
+                    snackbar.showSnackbar("Ошибка восстановления: " + (it.message ?: "неизвестно"))
+                }
+                loading = false
             }
         }
     }
@@ -286,7 +343,7 @@ fun WorkJournalApp() {
         scope.launch {
             loading = true
             runCatching {
-                withContext(Dispatchers.Default) { XlsxExporter.build(defects) }
+                withContext(Dispatchers.Default) { XlsxExporter.build(defects, laborNorms) }
             }.onSuccess {
                 exportBytes = it
                 val date = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
@@ -296,6 +353,26 @@ fun WorkJournalApp() {
             }
             loading = false
         }
+    }
+
+    fun createBackup() {
+        scope.launch {
+            loading = true
+            runCatching {
+                withContext(Dispatchers.IO) { BackupManager.create(context, store) }
+            }.onSuccess { bytes ->
+                backupBytes = bytes
+                val date = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                backupLauncher.launch("SU555_backup_" + date + ".zip")
+            }.onFailure {
+                snackbar.showSnackbar("Ошибка резервной копии: " + (it.message ?: "неизвестно"))
+            }
+            loading = false
+        }
+    }
+
+    fun chooseBackupForRestore() {
+        restoreBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
     }
 
     fun capturePhoto(defect: Defect, label: String) {
@@ -396,6 +473,9 @@ fun WorkJournalApp() {
                 },
                 actions = {
                     if (selectedApartment == null) {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Outlined.Settings, contentDescription = "Настройки")
+                        }
                         IconButton(onClick = ::chooseExcel) {
                             Icon(Icons.Outlined.UploadFile, contentDescription = "Excel")
                         }
@@ -484,8 +564,19 @@ fun WorkJournalApp() {
                             isNewDefect = false
                         },
                         onStatus = { defect, status ->
+                            val before = defect
                             store.setStatus(defect.id, status)
                             refresh()
+                            scope.launch {
+                                val result = snackbar.showSnackbar(
+                                    message = "Статус изменён",
+                                    actionLabel = "Отменить"
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    store.restoreSnapshot(before)
+                                    refresh()
+                                }
+                            }
                         },
                         onHistory = { historyDefect = it },
                         onArchive = { archiveTarget = it },
@@ -510,6 +601,14 @@ fun WorkJournalApp() {
                         store = store,
                         onOpenApartments = { tabIndex = WorkTab.APARTMENTS.ordinal }
                     )
+                    WorkTab.ATTENTION -> WorkAttention(
+                        defects = defects,
+                        onOpenApartment = { openApartment(it, false) },
+                        onEdit = {
+                            editingDefect = it
+                            isNewDefect = false
+                        }
+                    )
                     WorkTab.APARTMENTS -> WorkApartments(
                         defects = defects,
                         onOpen = { openApartment(it, false) },
@@ -520,10 +619,8 @@ fun WorkJournalApp() {
                     WorkTab.REPORTS -> WorkReports(
                         defects = defects,
                         store = store,
-                        reminderEnabled = reminderEnabled,
-                        onReminder = ::toggleReminder,
+                        norms = laborNorms,
                         onExport = ::exportAll,
-                        onArchive = { showArchive = true },
                         onContractor = { selectedContractor = it }
                     )
                 }
@@ -579,9 +676,22 @@ fun WorkJournalApp() {
             isNew = isNewDefect,
             onDismiss = { editingDefect = null },
             onSave = { saved ->
+                val before = if (!isNewDefect) store.defectById(saved.id) else null
                 if (isNewDefect) store.addDefect(saved) else store.updateDefect(saved)
                 editingDefect = null
                 refresh()
+                if (before != null) {
+                    scope.launch {
+                        val result = snackbar.showSnackbar(
+                            message = "Изменения сохранены",
+                            actionLabel = "Отменить"
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            store.restoreSnapshot(before)
+                            refresh()
+                        }
+                    }
+                }
             }
         )
     }
@@ -610,6 +720,16 @@ fun WorkJournalApp() {
                     store.archiveDefect(defect.id)
                     archiveTarget = null
                     refresh()
+                    scope.launch {
+                        val result = snackbar.showSnackbar(
+                            message = "Замечание перенесено в архив",
+                            actionLabel = "Отменить"
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            store.restoreDefect(defect.id)
+                            refresh()
+                        }
+                    }
                 }) { Text("В архив") }
             },
             dismissButton = {
@@ -625,6 +745,32 @@ fun WorkJournalApp() {
             onRestore = {
                 store.restoreDefect(it.id)
                 refresh()
+            }
+        )
+    }
+
+    if (showSettings) {
+        ManagementSettingsDialog(
+            norms = laborNorms,
+            reminderEnabled = reminderEnabled,
+            archiveCount = store.archivedCount(),
+            onDismiss = { showSettings = false },
+            onSaveNorms = {
+                laborNorms = it
+                ManagementSettings.save(context, it)
+            },
+            onReminder = ::toggleReminder,
+            onArchive = {
+                showSettings = false
+                showArchive = true
+            },
+            onBackup = {
+                showSettings = false
+                createBackup()
+            },
+            onRestore = {
+                showSettings = false
+                chooseBackupForRestore()
             }
         )
     }
