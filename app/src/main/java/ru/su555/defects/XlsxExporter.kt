@@ -14,6 +14,7 @@ object XlsxExporter {
         val sections = defects.bySection()
         val apartments = defects.byApartment()
         val contractors = defects.byResponsible()
+        val contractorResources = defects.contractorResourceEstimates()
         val out = ByteArrayOutputStream()
 
         ZipOutputStream(out).use { zip ->
@@ -44,7 +45,7 @@ object XlsxExporter {
             add("xl/charts/chart2.xml", sectionChart())
 
             add("xl/worksheets/sheet3.xml", apartmentSheet(apartments))
-            add("xl/worksheets/sheet4.xml", contractorSheet(contractors))
+            add("xl/worksheets/sheet4.xml", contractorSheet(contractors, contractorResources))
             add("xl/worksheets/sheet5.xml", defectsSheet(defects))
         }
 
@@ -127,19 +128,35 @@ object XlsxExporter {
         )
     }
 
-    private fun contractorSheet(items: List<CategorySummary>): String {
+    private fun contractorSheet(
+        items: List<CategorySummary>,
+        resources: List<ContractorResourceEstimate>
+    ): String {
         val rows = mutableListOf<List<XCell>>()
-        rows += headers("Подрядчик", "Всего", "Открыто", "Просрочено", "Выполнено")
-        items.forEach {
+        rows += headers(
+            "Подрядчик", "Всего", "Открыто", "Просрочено", "Выполнено",
+            "Квартир в работе", "Оценка, чел.-ч", "Рекомендуемо людей", "Оценка, раб. дней"
+        )
+        items.forEach { item ->
+            val estimate = resources.firstOrNull {
+                it.name.equals(item.name, ignoreCase = true)
+            }
             rows += listOf(
-                XCell(it.name),
-                XCell(it.total),
-                XCell(it.open),
-                XCell(it.overdue),
-                XCell(it.closed)
+                XCell(item.name),
+                XCell(item.total),
+                XCell(item.open),
+                XCell(item.overdue),
+                XCell(item.closed),
+                XCell(estimate?.apartments ?: 0),
+                XCell(estimate?.laborHours ?: 0.0),
+                XCell(estimate?.recommendedPeople ?: 0),
+                XCell(estimate?.estimatedWorkingDays ?: 0.0)
             )
         }
-        return worksheet(rows, listOf(42.0, 12.0, 12.0, 14.0, 14.0))
+        return worksheet(
+            rows,
+            listOf(34.0, 10.0, 10.0, 12.0, 12.0, 18.0, 17.0, 20.0, 19.0)
+        )
     }
 
     private fun defectsSheet(items: List<Defect>): String {
@@ -170,7 +187,7 @@ object XlsxExporter {
                 XCell(defect.address),
                 XCell(defect.element),
                 XCell(defect.description, 2),
-                XCell(defect.responsible),
+                XCell(displayResponsible(defect)),
                 XCell(defect.status.title, statusStyle),
                 XCell(defect.dueDate?.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) ?: ""),
                 XCell(defect.overdueDays()),
