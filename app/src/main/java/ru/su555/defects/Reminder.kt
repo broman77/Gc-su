@@ -72,7 +72,7 @@ object ReminderScheduler {
 }
 
 class ReminderReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context) {
+    override fun onReceive(context: Context, intent: Intent?) {
         if (!ReminderScheduler.isEnabled(context)) return
 
         if (
