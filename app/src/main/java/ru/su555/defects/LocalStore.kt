@@ -136,7 +136,23 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
     fun updateDefect(defect: Defect) {
         require(defect.id > 0) { "Нельзя изменить замечание без id" }
         val before = defectById(defect.id)
-        val updated = defect.copy(updatedAt = System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        val updated = defect.copy(
+            reportedAt = when {
+                defect.status == DefectStatus.REPORTED_NOT_DONE && defect.reportedAt == null -> now
+                else -> defect.reportedAt
+            },
+            verifiedAt = when {
+                defect.status == DefectStatus.REPORTED_NOT_DONE && defect.verifiedAt == null -> now
+                defect.status == DefectStatus.DONE && defect.verifiedAt == null -> now
+                else -> defect.verifiedAt
+            },
+            completedAt = when {
+                defect.status == DefectStatus.DONE && defect.completedAt == null -> now
+                else -> defect.completedAt
+            },
+            updatedAt = now
+        )
 
         writableDatabase.update(
             "defects",
@@ -179,7 +195,10 @@ class LocalStore(context: Context) : SQLiteOpenHelper(
             put("status", status.name)
             put("updated_at", now)
             when (status) {
-                DefectStatus.REPORTED_NOT_DONE -> if (before.reportedAt == null) put("reported_at", now)
+                DefectStatus.REPORTED_NOT_DONE -> {
+                    if (before.reportedAt == null) put("reported_at", now)
+                    if (before.verifiedAt == null) put("verified_at", now)
+                }
                 DefectStatus.DONE -> {
                     if (before.verifiedAt == null) put("verified_at", now)
                     if (before.completedAt == null) put("completed_at", now)
