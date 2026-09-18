@@ -9,12 +9,12 @@ import java.util.zip.ZipOutputStream
 object XlsxExporter {
     private data class XCell(val value: Any, val style: Int = 0)
 
-    fun build(defects: List<Defect>): ByteArray {
+    fun build(defects: List<Defect>, norms: LaborNorms = LaborNorms()): ByteArray {
         val dashboard = defects.dashboard()
         val sections = defects.bySection()
         val apartments = defects.byApartment()
         val contractors = defects.byResponsible()
-        val contractorResources = defects.contractorResourceEstimates()
+        val contractorResources = defects.contractorResourceEstimates(norms)
         val out = ByteArrayOutputStream()
 
         ZipOutputStream(out).use { zip ->
@@ -163,7 +163,8 @@ object XlsxExporter {
         val rows = mutableListOf<List<XCell>>()
         rows += headers(
             "Корпус", "Секция", "Квартира", "Адрес", "Элемент квартиры", "Дефект",
-            "Подрядчик", "Статус", "Плановый срок", "Просрочка, дней", "Лист", "Строка"
+            "Подрядчик", "Ответственный сотрудник", "Приоритет", "Статус", "Плановый срок",
+            "Дата отчёта", "Дата проверки", "Дата закрытия", "Просрочка, дней", "Лист", "Строка"
         )
 
         items.sortedWith(
@@ -188,8 +189,13 @@ object XlsxExporter {
                 XCell(defect.element),
                 XCell(defect.description, 2),
                 XCell(displayResponsible(defect)),
+                XCell(defect.assignedEmployee),
+                XCell(defect.priority.title),
                 XCell(defect.status.title, statusStyle),
                 XCell(defect.dueDate?.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) ?: ""),
+                XCell(formatTimestamp(defect.reportedAt)),
+                XCell(formatTimestamp(defect.verifiedAt)),
+                XCell(formatTimestamp(defect.completedAt)),
                 XCell(defect.overdueDays()),
                 XCell(defect.sourceSheet),
                 XCell(defect.sourceRow)
@@ -198,9 +204,16 @@ object XlsxExporter {
 
         return worksheet(
             rows,
-            listOf(10.0, 10.0, 11.0, 28.0, 28.0, 62.0, 28.0, 31.0, 18.0, 19.0, 16.0, 10.0)
+            listOf(10.0, 10.0, 11.0, 28.0, 28.0, 55.0, 25.0, 24.0, 14.0, 25.0, 18.0, 16.0, 16.0, 16.0, 19.0, 16.0, 10.0)
         )
     }
+
+    private fun formatTimestamp(value: Long?): String =
+        value?.let {
+            java.time.Instant.ofEpochMilli(it)
+                .atZone(java.time.ZoneId.systemDefault())
+                .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+        } ?: ""
 
     private fun row(label: String, value: Any, header: Boolean = false): List<XCell> =
         if (header) listOf(XCell(label, 1), XCell(value, 1))
