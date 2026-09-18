@@ -261,6 +261,7 @@ fun WorkJournalApp() {
                         ?: error("Не удалось открыть Excel")
                 }
                 withContext(Dispatchers.IO) {
+                    File(context.filesDir, "defect_photos").deleteRecursively()
                     store.replaceAllFromExcel(result.defects)
                 }
                 sourceName = name
@@ -1270,33 +1271,33 @@ private fun DefectEditorDialog(
         title = { Text(if (isNew) "Новое замечание" else "Редактировать замечание") },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedTextField(
                     value = element,
                     onValueChange = { element = it },
                     label = { Text("Элемент / помещение") },
-                    modifier = Modifier.width(460.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
                     label = { Text("Описание замечания") },
-                    modifier = Modifier.width(460.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     minLines = 3
                 )
                 OutlinedTextField(
                     value = responsible,
                     onValueChange = { responsible = it },
                     label = { Text("Подрядчик") },
-                    modifier = Modifier.width(460.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = dueText,
                     onValueChange = { dueText = it },
                     label = { Text("Срок, ДД.ММ.ГГГГ") },
-                    modifier = Modifier.width(460.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     DefectStatus.entries.forEach {
