@@ -56,14 +56,16 @@ object XlsxExporter {
             row("Показатель", "Значение", header = true),
             row("Квартир всего", d.totalApartments),
             row("Квартир в реестре", d.apartmentsInRegister),
+            row("Квартир в работе", d.apartmentsWithOpen),
+            row("Квартир с просрочкой", d.apartmentsWithOverdue),
+            row("Полностью закрытых квартир", d.apartmentsFullyDone),
             row("Всего замечаний", d.totalDefects),
             listOf(XCell("Белые · не выполнено"), XCell(d.plainOpen, 6)),
             listOf(XCell("Оранжевые · обратить внимание"), XCell(d.attention, 4)),
             listOf(XCell("Синие · отчитано, но не выполнено"), XCell(d.reportedNotDone, 5)),
             listOf(XCell("Зелёные · выполнено"), XCell(d.closed, 3)),
-            row("Просрочено", d.overdue),
-            row("Квартир с просрочкой", d.apartmentsWithOverdue),
-            row("Выполнение, %", d.completionPercent),
+            row("Просроченных замечаний", d.overdueDefects),
+            row("Выполнение замечаний, %", d.completionPercent),
             row("Дата отчёта", LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy")))
         )
         return worksheet(rows, listOf(38.0, 18.0), drawing = true)
@@ -72,26 +74,28 @@ object XlsxExporter {
     private fun sectionSheet(items: List<SectionSummary>): String {
         val rows = mutableListOf<List<XCell>>()
         rows += headers(
-            "Корпус / секция", "Квартир всего", "Квартир в реестре", "Замечаний",
-            "Открыто", "Просрочено", "Оранжевые", "Синие", "Зелёные", "Выполнение, %"
+            "Корпус / секция", "Квартир всего", "В реестре", "Квартир в работе",
+            "Квартир с просрочкой", "Замечаний", "Открытых замечаний",
+            "Оранжевые", "Синие", "Зелёные", "Готовность, %"
         )
         items.forEach {
             rows += listOf(
                 XCell(it.title),
                 XCell(it.apartmentCapacity),
                 XCell(it.apartmentsInRegister),
+                XCell(it.apartmentsWithOpen),
+                XCell(it.apartmentsWithOverdue),
                 XCell(it.totalDefects),
-                XCell(it.open),
-                XCell(it.overdue),
+                XCell(it.openDefects),
                 XCell(it.attention, if (it.attention > 0) 4 else 0),
                 XCell(it.reportedNotDone, if (it.reportedNotDone > 0) 5 else 0),
-                XCell(it.closed, 3),
+                XCell(it.closedDefects, 3),
                 XCell(it.completionPercent)
             )
         }
         return worksheet(
             rows,
-            listOf(24.0, 15.0, 18.0, 14.0, 12.0, 14.0, 14.0, 12.0, 12.0, 16.0),
+            listOf(24.0, 14.0, 12.0, 18.0, 21.0, 14.0, 19.0, 13.0, 11.0, 11.0, 16.0),
             drawing = true
         )
     }
@@ -112,7 +116,7 @@ object XlsxExporter {
                 XCell(it.attention, if (it.attention > 0) 4 else 0),
                 XCell(it.reportedNotDone, if (it.reportedNotDone > 0) 5 else 0),
                 XCell(it.closed, 3),
-                XCell(it.overdue),
+                XCell(it.overdueDefects),
                 XCell(it.nearestDue?.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) ?: ""),
                 XCell(it.maxOverdueDays)
             )
@@ -281,11 +285,11 @@ object XlsxExporter {
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets>
-<sheet name="Сводка" sheetId="1" r:id="rId1"/>
-<sheet name="По секциям" sheetId="2" r:id="rId2"/>
-<sheet name="По квартирам" sheetId="3" r:id="rId3"/>
+<sheet name="Руководителю" sheetId="1" r:id="rId1"/>
+<sheet name="Секции" sheetId="2" r:id="rId2"/>
+<sheet name="Квартиры" sheetId="3" r:id="rId3"/>
 <sheet name="Подрядчики" sheetId="4" r:id="rId4"/>
-<sheet name="Замечания" sheetId="5" r:id="rId5"/>
+<sheet name="Детали" sheetId="5" r:id="rId5"/>
 </sheets>
 </workbook>"""
 
@@ -357,14 +361,14 @@ object XlsxExporter {
 
     private fun statusChart() = barChart(
         title = "Статусы замечаний",
-        categoryFormula = "'Сводка'!\$A\$5:\$A\$8",
-        valueFormula = "'Сводка'!\$B\$5:\$B\$8"
+        categoryFormula = "'Руководителю'!\$A\$5:\$A\$8",
+        valueFormula = "'Руководителю'!\$B\$5:\$B\$8"
     )
 
     private fun sectionChart() = barChart(
         title = "Открытые замечания по секциям",
-        categoryFormula = "'По секциям'!\$A\$2:\$A\$5",
-        valueFormula = "'По секциям'!\$E\$2:\$E\$5"
+        categoryFormula = "'Секции'!\$A\$2:\$A\$5",
+        valueFormula = "'Секции'!\$E\$2:\$E\$5"
     )
 
     private fun barChart(
