@@ -37,6 +37,7 @@ object MironovskayaProject {
 }
 
 data class Defect(
+    val id: Long = 0L,
     val building: Int,
     val section: Int,
     val apartment: Int,
@@ -47,7 +48,9 @@ data class Defect(
     val status: DefectStatus,
     val dueDate: LocalDate?,
     val sourceSheet: String,
-    val sourceRow: Int
+    val sourceRow: Int,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
 ) {
     val apartmentLabel: String
         get() = "Корпус $building · секция $section · кв. $apartment"
@@ -144,24 +147,32 @@ fun List<Defect>.dashboard(today: LocalDate = LocalDate.now()): Dashboard {
     )
 }
 
-fun List<Defect>.byApartment(today: LocalDate = LocalDate.now()): List<ApartmentSummary> =
-    groupBy { Triple(it.building, it.section, it.apartment) }
-        .map { (key, rows) ->
-            val openRows = rows.filter { !it.isClosed }
-            ApartmentSummary(
-                building = key.first,
-                section = key.second,
-                apartment = key.third,
-                total = rows.size,
-                open = openRows.size,
-                plainOpen = rows.count { it.status == DefectStatus.OPEN },
-                attention = rows.count { it.status == DefectStatus.ATTENTION },
-                reportedNotDone = rows.count { it.status == DefectStatus.REPORTED_NOT_DONE },
-                overdueDefects = rows.count { it.isOverdue(today) },
-                closed = rows.count { it.isClosed },
-                nearestDue = openRows.mapNotNull { it.dueDate }.minOrNull(),
-                maxOverdueDays = rows.maxOfOrNull { it.overdueDays(today) } ?: 0
-            )
+fun List<Defect>.byApartment(today: LocalDate = LocalDate.now()): List<ApartmentSummary> {
+    val grouped = groupBy { Triple(it.building, it.section, it.apartment) }
+
+    return MironovskayaProject.sections
+        .flatMap { projectSection ->
+            (projectSection.apartmentFrom..projectSection.apartmentTo).map { apartment ->
+                val rows = grouped[
+                    Triple(projectSection.building, projectSection.section, apartment)
+                ].orEmpty()
+                val openRows = rows.filter { !it.isClosed }
+
+                ApartmentSummary(
+                    building = projectSection.building,
+                    section = projectSection.section,
+                    apartment = apartment,
+                    total = rows.size,
+                    open = openRows.size,
+                    plainOpen = rows.count { it.status == DefectStatus.OPEN },
+                    attention = rows.count { it.status == DefectStatus.ATTENTION },
+                    reportedNotDone = rows.count { it.status == DefectStatus.REPORTED_NOT_DONE },
+                    overdueDefects = rows.count { it.isOverdue(today) },
+                    closed = rows.count { it.isClosed },
+                    nearestDue = openRows.mapNotNull { it.dueDate }.minOrNull(),
+                    maxOverdueDays = rows.maxOfOrNull { it.overdueDays(today) } ?: 0
+                )
+            }
         }
         .sortedWith(
             compareByDescending<ApartmentSummary> { it.hasOverdue }
@@ -172,6 +183,7 @@ fun List<Defect>.byApartment(today: LocalDate = LocalDate.now()): List<Apartment
                 .thenBy { it.section }
                 .thenBy { it.apartment }
         )
+}
 
 fun List<Defect>.bySection(today: LocalDate = LocalDate.now()): List<SectionSummary> =
     MironovskayaProject.sections.map { projectSection ->
@@ -208,6 +220,24 @@ fun List<Defect>.byCategory(today: LocalDate = LocalDate.now()): List<CategorySu
         }
         .sortedByDescending { it.total }
 
+fun canonicalResponsibleName(value: String): String {
+    val cleaned = value
+        .trim()
+        .replace(Regex("""\s+"""), " ")
+
+    val key = cleaned
+        .lowercase()
+        .replace('ё', 'е')
+        .replace(".", "")
+        .trim()
+
+    return when {
+        key == "сму" || key.startsWith("мкд") || key.startsWith("стм") -> "СМУ"
+        key == "уир" || key.contains("электрик") || key.contains("сантех") -> "УИР"
+        else -> cleaned
+    }
+}
+
 fun splitResponsible(value: String): List<String> {
     if (value.isBlank()) return listOf("Не указан")
 
@@ -223,7 +253,7 @@ fun splitResponsible(value: String): List<String> {
 
     val parts = normalized
         .split("+")
-        .map { it.trim() }
+        .map { canonicalResponsibleName(it) }
         .filter { it.isNotBlank() }
         .distinctBy { it.lowercase() }
 
